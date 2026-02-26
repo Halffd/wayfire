@@ -8,10 +8,10 @@
 			<_short>Default Values</_short>
 			<option name="brightness" type="double">
 				<_short>Brightness</_short>
-				<_long>Default brightness level (0.1 to 2.0).</_long>
+				<_long>Default brightness level (0.0001 to 2.0).</_long>
 				<default>1.0</default>
-				<precision>0.05</precision>
-				<min>0.1</min>
+				<precision>0.0001</precision>
+				<min>0.0001</min>
 				<max>2.0</max>
 			</option>
 			<option name="gamma" type="double">
@@ -35,37 +35,37 @@
 			<option name="brightness_up" type="key">
 				<_short>Increase Brightness</_short>
 				<_long>Increase brightness by 0.1.</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; KEY_B</default>
+				<default>&lt;super&gt; KEY_F1</default>
 			</option>
 			<option name="brightness_down" type="key">
 				<_short>Decrease Brightness</_short>
 				<_long>Decrease brightness by 0.1.</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_B</default>
+				<default>&lt;super&gt; &lt;shift&gt; KEY_F1</default>
 			</option>
 			<option name="gamma_up" type="key">
 				<_short>Increase Gamma</_short>
 				<_long>Increase gamma by 0.1.</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; KEY_G</default>
+				<default>&lt;super&gt; KEY_F2</default>
 			</option>
 			<option name="gamma_down" type="key">
 				<_short>Decrease Gamma</_short>
 				<_long>Decrease gamma by 0.1.</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_G</default>
+				<default>&lt;super&gt; &lt;shift&gt; KEY_F2</default>
 			</option>
 			<option name="temperature_up" type="key">
 				<_short>Increase Temperature</_short>
 				<_long>Increase color temperature by 500K (cooler).</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; KEY_T</default>
+				<default>&lt;super&gt; KEY_F3</default>
 			</option>
 			<option name="temperature_down" type="key">
 				<_short>Decrease Temperature</_short>
 				<_long>Decrease color temperature by 500K (warmer).</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_T</default>
+				<default>&lt;super&gt; &lt;shift&gt; KEY_F3</default>
 			</option>
 			<option name="reset_all" type="key">
 				<_short>Reset All</_short>
 				<_long>Reset all adjustments to default values.</_long>
-				<default>&lt;ctrl&gt; &lt;super&gt; KEY_R</default>
+				<default>&lt;super&gt; KEY_F4</default>
 			</option>
 		</group>
 		<group>
@@ -110,6 +110,42 @@
 			<method name="display/reset">
 				<_short>Reset all adjustments</_short>
 				<_long>Resets all display adjustments to default values.</_long>
+			</method>
+			<method name="display/increase-brightness">
+				<_short>Increase brightness</_short>
+				<_long>Increases the brightness level.</_long>
+				<param name="delta" type="double">Amount to increase by (default: 0.1)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/decrease-brightness">
+				<_short>Decrease brightness</_short>
+				<_long>Decreases the brightness level.</_long>
+				<param name="delta" type="double">Amount to decrease by (default: 0.1)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/increase-gamma">
+				<_short>Increase gamma</_short>
+				<_long>Increases the gamma correction.</_long>
+				<param name="delta" type="double">Amount to increase by (default: 0.1)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/decrease-gamma">
+				<_short>Decrease gamma</_short>
+				<_long>Decreases the gamma correction.</_long>
+				<param name="delta" type="double">Amount to decrease by (default: 0.1)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/increase-temperature">
+				<_short>Increase temperature</_short>
+				<_long>Increases the color temperature (cooler).</_long>
+				<param name="delta" type="int">Amount to increase in Kelvin (default: 500)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/decrease-temperature">
+				<_short>Decrease temperature</_short>
+				<_long>Decreases the color temperature (warmer).</_long>
+				<param name="delta" type="int">Amount to decrease in Kelvin (default: 500)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
 			</method>
 		</group>
 	</plugin>

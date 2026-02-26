@@ -457,20 +457,20 @@ The display plugin provides **per-monitor brightness, gamma, and color temperatu
 #### Default Values
 | Option | Type | Default | Range | Description |
 |--------|------|---------|-------|-------------|
-| `brightness` | double | 1.0 | 0.1 - 2.0 | Default brightness level |
+| `brightness` | double | 1.0 | 0.0001 - 2.0 | Default brightness level |
 | `gamma` | double | 1.0 | 0.1 - 3.0 | Default gamma correction |
 | `temperature` | int | 6500 | 1000 - 20000 | Default color temperature in Kelvin |
 
 #### Keyboard Shortcuts
 | Option | Default | Action |
 |--------|---------|--------|
-| `brightness_up` | \<ctrl\> \<super\> KEY_B | Increase brightness by 0.1 |
-| `brightness_down` | \<ctrl\> \<super\> \<shift\> KEY_B | Decrease brightness by 0.1 |
-| `gamma_up` | \<ctrl\> \<super\> KEY_G | Increase gamma by 0.1 |
-| `gamma_down` | \<ctrl\> \<super\> \<shift\> KEY_G | Decrease gamma by 0.1 |
-| `temperature_up` | \<ctrl\> \<super\> KEY_T | Increase temperature by 500K (cooler) |
-| `temperature_down` | \<ctrl\> \<super\> \<shift\> KEY_T | Decrease temperature by 500K (warmer) |
-| `reset_all` | \<ctrl\> \<super\> KEY_R | Reset all adjustments to defaults |
+| `brightness_up` | \<super\> KEY_F1 | Increase brightness by 0.1 |
+| `brightness_down` | \<super\> \<shift\> KEY_F1 | Decrease brightness by 0.1 |
+| `gamma_up` | \<super\> KEY_F2 | Increase gamma by 0.1 |
+| `gamma_down` | \<super\> \<shift\> KEY_F2 | Decrease gamma by 0.1 |
+| `temperature_up` | \<super\> KEY_F3 | Increase temperature by 500K (cooler) |
+| `temperature_down` | \<super\> \<shift\> KEY_F3 | Decrease temperature by 500K (warmer) |
+| `reset_all` | \<super\> KEY_F4 | Reset all adjustments to defaults |
 
 #### Animation
 | Option | Type | Default | Description |
@@ -547,6 +547,78 @@ Resets all display adjustments to default values.
 **Example:**
 ```json
 {"method": "display/reset"}
+```
+
+#### `display/increase-brightness`
+Increases the brightness level.
+
+**Parameters:**
+- `delta` (double, optional): Amount to increase by (default: 0.1)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/increase-brightness", "data": {"delta": 0.2}}
+```
+
+#### `display/decrease-brightness`
+Decreases the brightness level.
+
+**Parameters:**
+- `delta` (double, optional): Amount to decrease by (default: 0.1)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/decrease-brightness", "data": {"delta": 0.1}}
+```
+
+#### `display/increase-gamma`
+Increases the gamma correction.
+
+**Parameters:**
+- `delta` (double, optional): Amount to increase by (default: 0.1)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/increase-gamma", "data": {"delta": 0.05}}
+```
+
+#### `display/decrease-gamma`
+Decreases the gamma correction.
+
+**Parameters:**
+- `delta` (double, optional): Amount to decrease by (default: 0.1)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/decrease-gamma"}
+```
+
+#### `display/increase-temperature`
+Increases the color temperature (makes display cooler/bluer).
+
+**Parameters:**
+- `delta` (int, optional): Amount to increase in Kelvin (default: 500)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/increase-temperature", "data": {"delta": 1000}}
+```
+
+#### `display/decrease-temperature`
+Decreases the color temperature (makes display warmer/redder).
+
+**Parameters:**
+- `delta` (int, optional): Amount to decrease in Kelvin (default: 500)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/decrease-temperature", "data": {"delta": 500}}
 ```
 
 ### Color Temperature Guide

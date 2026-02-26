@@ -133,6 +133,12 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         ipc_repo->register_method("display/set-temperature", ipc_set_temperature);
         ipc_repo->register_method("display/get-state", ipc_get_state);
         ipc_repo->register_method("display/reset", ipc_reset);
+        ipc_repo->register_method("display/increase-brightness", ipc_increase_brightness);
+        ipc_repo->register_method("display/decrease-brightness", ipc_decrease_brightness);
+        ipc_repo->register_method("display/increase-gamma", ipc_increase_gamma);
+        ipc_repo->register_method("display/decrease-gamma", ipc_decrease_gamma);
+        ipc_repo->register_method("display/increase-temperature", ipc_increase_temperature);
+        ipc_repo->register_method("display/decrease-temperature", ipc_decrease_temperature);
 
         // Compile shader
         wf::gles::run_in_context([&]
@@ -145,7 +151,7 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
 
     void set_brightness(double value, bool animate = true)
     {
-        value = std::clamp(value, 0.1, 2.0);
+        value = std::clamp(value, 0.0001, 2.0);
         if (animate)
         {
             brightness_animation.animate(value);
@@ -328,6 +334,55 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         return wf::ipc::json_ok();
     };
 
+    // IPC methods for increasing/decreasing values
+    wf::ipc::method_callback ipc_increase_brightness = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(0.1);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_brightness(current_brightness + delta, animate);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_decrease_brightness = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(0.1);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_brightness(current_brightness - delta, animate);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_increase_gamma = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(0.1);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_gamma(current_gamma + delta, animate);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_decrease_gamma = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(0.1);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_gamma(current_gamma - delta, animate);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_increase_temperature = [=] (const wf::json_t& data)
+    {
+        int delta = wf::ipc::json_get_optional_int64(data, "delta").value_or(500);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_temperature(current_temperature + delta, animate);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_decrease_temperature = [=] (const wf::json_t& data)
+    {
+        int delta = wf::ipc::json_get_optional_int64(data, "delta").value_or(500);
+        bool animate = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+        set_temperature(current_temperature - delta, animate);
+        return wf::ipc::json_ok();
+    };
+
     void set_hook()
     {
         if (hook_set)
@@ -448,6 +503,12 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         ipc_repo->unregister_method("display/set-temperature");
         ipc_repo->unregister_method("display/get-state");
         ipc_repo->unregister_method("display/reset");
+        ipc_repo->unregister_method("display/increase-brightness");
+        ipc_repo->unregister_method("display/decrease-brightness");
+        ipc_repo->unregister_method("display/increase-gamma");
+        ipc_repo->unregister_method("display/decrease-gamma");
+        ipc_repo->unregister_method("display/increase-temperature");
+        ipc_repo->unregister_method("display/decrease-temperature");
     }
 };
 
