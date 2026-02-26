@@ -424,6 +424,20 @@ class wayfire_wm_actions_t : public wf::plugin_interface_t,
         ipc_repo->register_method("wm-actions/set-sticky", ipc_set_sticky);
         ipc_repo->register_method("wm-actions/send-to-back", ipc_send_to_back);
         ipc_repo->register_method("wm-actions/bring-to-front", ipc_bring_to_front);
+        
+        // Register new window management methods
+        ipc_repo->register_method("wm-actions/maximize", ipc_maximize);
+        ipc_repo->register_method("wm-actions/close", ipc_close);
+        ipc_repo->register_method("wm-actions/move", ipc_move);
+        ipc_repo->register_method("wm-actions/resize", ipc_resize);
+        ipc_repo->register_method("wm-actions/get-geometry", ipc_get_geometry);
+        ipc_repo->register_method("wm-actions/set-geometry", ipc_set_geometry);
+        ipc_repo->register_method("wm-actions/focus", ipc_focus);
+        
+        // Register mouse control methods
+        ipc_repo->register_method("input/get-cursor-position", ipc_get_cursor_position);
+        ipc_repo->register_method("input/warp-cursor", ipc_warp_cursor);
+        
         toggle_showdesktop.set_handler(on_toggle_showdesktop);
     }
 
@@ -436,6 +450,19 @@ class wayfire_wm_actions_t : public wf::plugin_interface_t,
         ipc_repo->unregister_method("wm-actions/set-sticky");
         ipc_repo->unregister_method("wm-actions/send-to-back");
         ipc_repo->unregister_method("wm-actions/bring-to-front");
+        
+        // Unregister new window management methods
+        ipc_repo->unregister_method("wm-actions/maximize");
+        ipc_repo->unregister_method("wm-actions/close");
+        ipc_repo->unregister_method("wm-actions/move");
+        ipc_repo->unregister_method("wm-actions/resize");
+        ipc_repo->unregister_method("wm-actions/get-geometry");
+        ipc_repo->unregister_method("wm-actions/set-geometry");
+        ipc_repo->unregister_method("wm-actions/focus");
+        
+        // Unregister mouse control methods
+        ipc_repo->unregister_method("input/get-cursor-position");
+        ipc_repo->unregister_method("input/warp-cursor");
     }
 
     wf::json_t execute_for_view(const wf::json_t& params,
@@ -518,6 +545,166 @@ class wayfire_wm_actions_t : public wf::plugin_interface_t,
 
             output_instance[view->get_output()]->do_send_to_back(view);
         });
+    };
+
+    // New window management IPC methods
+    wf::ipc::method_callback ipc_close = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        view->close();
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_move = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        int x = wf::ipc::json_get_int64(params, "x");
+        int y = wf::ipc::json_get_int64(params, "y");
+        bool with_animation = wf::ipc::json_get_optional_bool(params, "animation").value_or(true);
+
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        if (!view->get_output())
+        {
+            return wf::ipc::json_error("view has no output!");
+        }
+
+        auto geometry = view->get_geometry();
+        geometry.x = x;
+        geometry.y = y;
+        
+        if (with_animation)
+        {
+            view->move(x, y);
+        } else
+        {
+            view->set_geometry(geometry);
+        }
+
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_resize = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        int width = wf::ipc::json_get_int64(params, "width");
+        int height = wf::ipc::json_get_int64(params, "height");
+        bool with_animation = wf::ipc::json_get_optional_bool(params, "animation").value_or(true);
+
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        if (!view->get_output())
+        {
+            return wf::ipc::json_error("view has no output!");
+        }
+
+        auto geometry = view->get_geometry();
+        geometry.width = width;
+        geometry.height = height;
+        
+        if (with_animation)
+        {
+            view->resize(width, height);
+        } else
+        {
+            view->set_geometry(geometry);
+        }
+
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_get_geometry = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        auto geometry = view->get_geometry();
+        wf::json_t response;
+        response["x"] = geometry.x;
+        response["y"] = geometry.y;
+        response["width"] = geometry.width;
+        response["height"] = geometry.height;
+        response["workspace_x"] = view->get_output()->wset()->get_current_workspace().x;
+        response["workspace_y"] = view->get_output()->wset()->get_current_workspace().y;
+        response["minimized"] = view->minimized;
+        response["fullscreen"] = view->pending_fullscreen();
+        response["activated"] = view->activated;
+        return response;
+    };
+
+    wf::ipc::method_callback ipc_set_geometry = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        int x = wf::ipc::json_get_int64(params, "x");
+        int y = wf::ipc::json_get_int64(params, "y");
+        int width = wf::ipc::json_get_int64(params, "width");
+        int height = wf::ipc::json_get_int64(params, "height");
+
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        if (!view->get_output())
+        {
+            return wf::ipc::json_error("view has no output!");
+        }
+
+        wf::geometry_t geometry = {x, y, width, height};
+        view->set_geometry(geometry);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback ipc_focus = [=] (const wf::json_t& params)
+    {
+        auto view_id = wf::ipc::json_get_view_id(params);
+        wayfire_toplevel_view view = toplevel_cast(wf::ipc::find_view_by_id(view_id));
+        if (!view)
+        {
+            return wf::ipc::json_error("toplevel view id not found!");
+        }
+
+        wf::get_core().default_wm->focus_raise_view(view);
+        return wf::ipc::json_ok();
+    };
+
+    // Mouse control IPC methods
+    wf::ipc::method_callback ipc_get_cursor_position = [=] (const wf::json_t&)
+    {
+        auto pos = wf::get_core().get_cursor_position();
+        wf::json_t response;
+        response["x"] = pos.x;
+        response["y"] = pos.y;
+        return response;
+    };
+
+    wf::ipc::method_callback ipc_warp_cursor = [=] (const wf::json_t& params)
+    {
+        double x = wf::ipc::json_get_double(params, "x");
+        double y = wf::ipc::json_get_double(params, "y");
+        
+        wf::pointf_t pos = {x, y};
+        wf::get_core().warp_cursor(pos);
+        return wf::ipc::json_ok();
     };
 
     wf::ipc_activator_t::handler_t on_toggle_showdesktop = [=] (wf::output_t *output, wayfire_view)

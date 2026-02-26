@@ -2,12 +2,27 @@
 <wayfire>
 	<plugin name="zoom">
 		<_short>Zoom</_short>
-		<_long>A plugin to zoom in the desktop with the mouse.</_long>
+		<_long>A plugin to zoom in the desktop with the mouse or keyboard, and with IPC support.</_long>
 		<category>Accessibility</category>
 		<option name="modifier" type="key">
 			<_short>Zoom in the desktop by scrolling with modifier</_short>
 			<_long>Scrolls with the specified modifier to zoom in and out.</_long>
 			<default>&lt;super&gt;</default>
+		</option>
+		<option name="zoom_in" type="key">
+			<_short>Zoom in</_short>
+			<_long>Zoom in with the specified keybinding.</_long>
+			<default>&lt;ctrl&gt; KEY_UP</default>
+		</option>
+		<option name="zoom_out" type="key">
+			<_short>Zoom out</_short>
+			<_long>Zoom out with the specified keybinding.</_long>
+			<default>&lt;ctrl&gt; KEY_DOWN</default>
+		</option>
+		<option name="zoom_reset" type="key">
+			<_short>Reset zoom</_short>
+			<_long>Reset zoom to 100% with the specified keybinding.</_long>
+			<default>&lt;ctrl&gt; KEY_SLASH</default>
 		</option>
 		<option name="speed" type="double">
 			<_short>Speed</_short>
@@ -35,5 +50,34 @@
 				<_name>Nearest</_name>
 			</desc>
 		</option>
+		<group>
+			<_short>IPC Methods</_short>
+			<_long>Methods available via the IPC interface for programmatic control.</_long>
+			<method name="zoom/setZoom">
+				<_short>Set zoom level</_short>
+				<_long>Sets the zoom factor to a specific value.</_long>
+				<param name="factor" type="double">Zoom factor (1.0 to 50.0)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="zoom/zoomIn">
+				<_short>Zoom in</_short>
+				<_long>Increases the zoom level.</_long>
+				<param name="delta" type="double">Amount to zoom in (default: 1.0)</param>
+			</method>
+			<method name="zoom/zoomOut">
+				<_short>Zoom out</_short>
+				<_long>Decreases the zoom level.</_long>
+				<param name="delta" type="double">Amount to zoom out (default: 1.0)</param>
+			</method>
+			<method name="zoom/getZoom">
+				<_short>Get zoom state</_short>
+				<_long>Returns the current zoom state.</_long>
+				<returns name="factor" type="double">Current zoom factor</returns>
+				<returns name="target" type="double">Target zoom factor</returns>
+				<returns name="is_animating" type="bool">Whether animation is in progress</returns>
+				<returns name="animation_duration" type="int">Animation duration in ms</returns>
+				<returns name="interpolation_method" type="int">Interpolation method (0=linear, 1=nearest)</returns>
+			</method>
+		</group>
 	</plugin>
 </wayfire>

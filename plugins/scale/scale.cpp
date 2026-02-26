@@ -132,6 +132,27 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
 
     std::unique_ptr<wf::input_grab_t> grab;
 
+    // Hot corner tracking
+    enum corner_position_t
+    {
+        CORNER_NONE      = 0,
+        CORNER_TOP_LEFT  = 1,
+        CORNER_TOP_RIGHT = 2,
+        CORNER_BOTTOM_LEFT  = 3,
+        CORNER_BOTTOM_RIGHT = 4,
+    };
+
+    wf::option_wrapper_t<std::string> corner_top_left{"scale/corner_top_left"};
+    wf::option_wrapper_t<std::string> corner_top_right{"scale/corner_top_right"};
+    wf::option_wrapper_t<std::string> corner_bottom_left{"scale/corner_bottom_left"};
+    wf::option_wrapper_t<std::string> corner_bottom_right{"scale/corner_bottom_right"};
+    wf::option_wrapper_t<int> corner_zone_size{"scale/corner_zone_size"};
+    wf::option_wrapper_t<int> corner_delay{"scale/corner_delay"};
+
+    corner_position_t current_corner = CORNER_NONE;
+    uint32_t corner_enter_time = 0;
+    bool corner_timer_pending  = false;
+
     wf::plugin_activation_data_t grab_interface{
         .name = SCALE_TRANSFORMER,
         .capabilities = wf::CAPABILITY_MANAGE_DESKTOP | wf::CAPABILITY_GRAB_INPUT,
@@ -147,6 +168,13 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
         grab     = std::make_unique<wf::input_grab_t>(SCALE_TRANSFORMER, output, this, this, this);
 
         allow_scale_zoom.set_callback(allow_scale_zoom_option_changed);
+
+        // Setup corner option callbacks
+        corner_top_left.set_callback([=] () { reset_corner_tracking(); });
+        corner_top_right.set_callback([=] () { reset_corner_tracking(); });
+        corner_bottom_left.set_callback([=] () { reset_corner_tracking(); });
+        corner_bottom_right.set_callback([=] () { reset_corner_tracking(); });
+        corner_zone_size.set_callback([=] () { reset_corner_tracking(); });
 
         setup_workspace_switching();
 
@@ -333,6 +361,8 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
     {
         if (finger_id == 0)
         {
+            // Check for hot corner triggers
+            check_corner_trigger(position);
             handle_pointer_motion(position, time);
         }
     }
@@ -507,8 +537,113 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
         }
     }
 
+    /* Hot corner detection methods */
+    corner_position_t detect_corner(wf::pointf_t pos)
+    {
+        auto og = output->get_layout_geometry();
+        int zone = corner_zone_size;
+
+        bool in_left   = pos.x < og.x + zone;
+        bool in_right  = pos.x > og.x + og.width - zone;
+        bool in_top    = pos.y < og.y + zone;
+        bool in_bottom = pos.y > og.y + og.height - zone;
+
+        if (in_top && in_left)
+        {
+            return CORNER_TOP_LEFT;
+        } else if (in_top && in_right)
+        {
+            return CORNER_TOP_RIGHT;
+        } else if (in_bottom && in_left)
+        {
+            return CORNER_BOTTOM_LEFT;
+        } else if (in_bottom && in_right)
+        {
+            return CORNER_BOTTOM_RIGHT;
+        }
+
+        return CORNER_NONE;
+    }
+
+    std::string get_corner_action(corner_position_t corner)
+    {
+        switch (corner)
+        {
+          case CORNER_TOP_LEFT:
+            return corner_top_left;
+          case CORNER_TOP_RIGHT:
+            return corner_top_right;
+          case CORNER_BOTTOM_LEFT:
+            return corner_bottom_left;
+          case CORNER_BOTTOM_RIGHT:
+            return corner_bottom_right;
+          default:
+            return "none";
+        }
+    }
+
+    void reset_corner_tracking()
+    {
+        current_corner      = CORNER_NONE;
+        corner_enter_time   = 0;
+        corner_timer_pending = false;
+    }
+
+    void check_corner_trigger(wf::pointf_t pos)
+    {
+        // Don't trigger corners if scale is already active
+        if (active)
+        {
+            reset_corner_tracking();
+            return;
+        }
+
+        corner_position_t corner = detect_corner(pos);
+        uint32_t current_time = wf::get_current_time();
+
+        if (corner == CORNER_NONE)
+        {
+            reset_corner_tracking();
+            return;
+        }
+
+        // If we entered a different corner, reset
+        if (corner != current_corner)
+        {
+            current_corner       = corner;
+            corner_enter_time    = current_time;
+            corner_timer_pending = false;
+            return;
+        }
+
+        // Check if delay has passed
+        int delay = corner_delay;
+        if (!corner_timer_pending)
+        {
+            corner_timer_pending = true;
+            return;
+        }
+
+        if (current_time - corner_enter_time >= (uint32_t)delay)
+        {
+            std::string action = get_corner_action(corner);
+            reset_corner_tracking();
+
+            if (action == "scale")
+            {
+                handle_toggle(false);
+            } else if (action == "scale_all")
+            {
+                handle_toggle(true);
+            }
+        }
+    }
+
     void handle_pointer_motion(wf::pointf_t to_f, uint32_t time) override
     {
+        // Check for hot corner triggers
+        check_corner_trigger(to_f);
+
         wf::point_t to{(int)std::round(to_f.x), (int)std::round(to_f.y)};
         if (!drag_helper->view && last_selected_view && drag_helper->should_start_pending_drag(to))
         {
@@ -1334,6 +1469,9 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
         // trigger an action in scale
         last_selected_view = nullptr;
 
+        // Reset corner tracking when scale activates
+        reset_corner_tracking();
+
         grab->grab_input(wf::scene::layer::WORKSPACE);
         if (current_focus_view != wf::get_core().seat->get_active_view())
         {
@@ -1418,6 +1556,9 @@ class wayfire_scale : public wf::per_output_plugin_instance_t,
         }
 
         active = false;
+
+        // Reset corner tracking when scale ends
+        reset_corner_tracking();
 
         unset_hook();
         remove_transformers();

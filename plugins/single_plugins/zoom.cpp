@@ -3,6 +3,9 @@
 #include <wayfire/render.hpp>
 #include <wayfire/render-manager.hpp>
 #include <wayfire/util/duration.hpp>
+#include <wayfire/plugins/ipc/ipc-method-repository.hpp>
+#include <wayfire/plugins/ipc/ipc-helpers.hpp>
+#include <wayfire/plugins/common/shared-core-data.hpp>
 
 class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
 {
@@ -13,11 +16,16 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
     };
 
     wf::option_wrapper_t<wf::keybinding_t> modifier{"zoom/modifier"};
+    wf::option_wrapper_t<wf::keybinding_t> zoom_in_key{"zoom/zoom_in"};
+    wf::option_wrapper_t<wf::keybinding_t> zoom_out_key{"zoom/zoom_out"};
+    wf::option_wrapper_t<wf::keybinding_t> zoom_reset_key{"zoom/zoom_reset"};
     wf::option_wrapper_t<double> speed{"zoom/speed"};
     wf::option_wrapper_t<wf::animation_description_t> smoothing_duration{"zoom/smoothing_duration"};
     wf::option_wrapper_t<int> interpolation_method{"zoom/interpolation_method"};
     wf::animation::simple_animation_t progression{smoothing_duration};
     bool hook_set = false;
+
+    wf::shared_data::ref_ptr_t<wf::ipc::method_repository_t> ipc_repo;
 
     wf::plugin_activation_data_t grab_interface = {
         .name = "zoom",
@@ -29,6 +37,15 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
     {
         progression.set(1, 1);
         output->add_axis(modifier, &axis);
+        output->add_key(zoom_in_key, &zoom_in_binding);
+        output->add_key(zoom_out_key, &zoom_out_binding);
+        output->add_key(zoom_reset_key, &zoom_reset_binding);
+
+        // Register IPC methods
+        ipc_repo->register_method("zoom/setZoom", set_zoom);
+        ipc_repo->register_method("zoom/zoomIn", zoom_in_ipc);
+        ipc_repo->register_method("zoom/zoomOut", zoom_out_ipc);
+        ipc_repo->register_method("zoom/getZoom", get_zoom);
     }
 
     void update_zoom_target(float delta)
@@ -65,6 +82,88 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
         update_zoom_target(ev->delta);
 
         return true;
+    };
+
+    wf::key_callback zoom_in_binding = [=] (auto)
+    {
+        update_zoom_target(-1.0);
+        return false;
+    };
+
+    wf::key_callback zoom_out_binding = [=] (auto)
+    {
+        update_zoom_target(1.0);
+        return false;
+    };
+
+    wf::key_callback zoom_reset_binding = [=] (auto)
+    {
+        if (progression.end != 1.0f)
+        {
+            progression.animate(1.0f);
+
+            if (!hook_set)
+            {
+                hook_set = true;
+                output->render->add_post(&render_hook);
+                output->render->set_redraw_always();
+            }
+        }
+        return false;
+    };
+
+    // IPC methods
+    wf::ipc::method_callback set_zoom = [=] (const wf::json_t& data)
+    {
+        double factor = wf::ipc::json_get_double(data, "factor");
+        bool with_animation = wf::ipc::json_get_optional_bool(data, "animation").value_or(true);
+
+        if (factor < 1.0 || factor > 50.0)
+        {
+            return wf::ipc::json_error("Zoom factor must be between 1.0 and 50.0");
+        }
+
+        if (with_animation)
+        {
+            progression.animate((float)factor);
+        } else
+        {
+            progression.set((float)factor, (float)factor);
+        }
+
+        if (!hook_set)
+        {
+            hook_set = true;
+            output->render->add_post(&render_hook);
+            output->render->set_redraw_always();
+        }
+
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback zoom_in_ipc = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(1.0);
+        update_zoom_target(-(float)delta);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback zoom_out_ipc = [=] (const wf::json_t& data)
+    {
+        double delta = wf::ipc::json_get_optional_double(data, "delta").value_or(1.0);
+        update_zoom_target((float)delta);
+        return wf::ipc::json_ok();
+    };
+
+    wf::ipc::method_callback get_zoom = [=] (const wf::json_t&)
+    {
+        wf::json_t response;
+        response["factor"] = (double)progression;
+        response["target"] = (double)progression.end;
+        response["is_animating"] = progression.running();
+        response["animation_duration"] = ((wf::animation_description_t)smoothing_duration).length_ms;
+        response["interpolation_method"] = (int)interpolation_method;
+        return response;
     };
 
     wf::post_hook_t render_hook = [=] (wf::auxilliary_buffer_t& source,
@@ -121,6 +220,15 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
         }
 
         output->rem_binding(&axis);
+        output->rem_binding(&zoom_in_binding);
+        output->rem_binding(&zoom_out_binding);
+        output->rem_binding(&zoom_reset_binding);
+
+        // Unregister IPC methods
+        ipc_repo->unregister_method("zoom/setZoom");
+        ipc_repo->unregister_method("zoom/zoomIn");
+        ipc_repo->unregister_method("zoom/zoomOut");
+        ipc_repo->unregister_method("zoom/getZoom");
     }
 };
 

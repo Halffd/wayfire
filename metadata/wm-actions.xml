@@ -2,7 +2,7 @@
 <wayfire>
 	<plugin name="wm-actions">
 		<_short>WM Actions</_short>
-		<_long>A plugin which provides various window management functionalities.</_long>
+		<_long>A plugin which provides various window management functionalities and IPC methods for window and mouse control.</_long>
 		<category>Window Management</category>
 		<option name="toggle_always_on_top" type="activator">
 			<_short>Toggle Always on Top</_short>
@@ -44,5 +44,112 @@
 			<_long>Raise the active view above all other views.</_long>
 			<default>disabled</default>
 		</option>
+		<group>
+			<_short>IPC Methods</_short>
+			<_long>Methods available via the IPC interface for programmatic window and mouse control.</_long>
+			<method name="wm-actions/maximize">
+				<_short>Maximize/Unmaximize view</_short>
+				<_long>Toggles the maximized state of a view.</_long>
+				<param name="view-id" type="uint">ID of the view to maximize/unmaximize</param>
+				<param name="state" type="bool">True to maximize, false to unmaximize</param>
+			</method>
+			<method name="wm-actions/close">
+				<_short>Close view</_short>
+				<_long>Closes the specified view.</_long>
+				<param name="view-id" type="uint">ID of the view to close</param>
+			</method>
+			<method name="wm-actions/move">
+				<_short>Move view</_short>
+				<_long>Moves a view to the specified position.</_long>
+				<param name="view-id" type="uint">ID of the view to move</param>
+				<param name="x" type="int">Target X coordinate</param>
+				<param name="y" type="int">Target Y coordinate</param>
+				<param name="animation" type="bool">Whether to animate the move (default: true)</param>
+			</method>
+			<method name="wm-actions/resize">
+				<_short>Resize view</_short>
+				<_long>Resizes a view to the specified dimensions.</_long>
+				<param name="view-id" type="uint">ID of the view to resize</param>
+				<param name="width" type="int">Target width</param>
+				<param name="height" type="int">Target height</param>
+				<param name="animation" type="bool">Whether to animate the resize (default: true)</param>
+			</method>
+			<method name="wm-actions/get-geometry">
+				<_short>Get view geometry</_short>
+				<_long>Returns the geometry and state of a view.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<returns name="x" type="int">X coordinate</returns>
+				<returns name="y" type="int">Y coordinate</returns>
+				<returns name="width" type="int">Width</returns>
+				<returns name="height" type="int">Height</returns>
+				<returns name="workspace_x" type="int">Workspace X index</returns>
+				<returns name="workspace_y" type="int">Workspace Y index</returns>
+				<returns name="minimized" type="bool">Whether minimized</returns>
+				<returns name="fullscreen" type="bool">Whether fullscreen</returns>
+				<returns name="activated" type="bool">Whether activated</returns>
+			</method>
+			<method name="wm-actions/set-geometry">
+				<_short>Set view geometry</_short>
+				<_long>Sets the exact geometry of a view.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="x" type="int">X coordinate</param>
+				<param name="y" type="int">Y coordinate</param>
+				<param name="width" type="int">Width</param>
+				<param name="height" type="int">Height</param>
+			</method>
+			<method name="wm-actions/focus">
+				<_short>Focus view</_short>
+				<_long>Focuses and raises the specified view.</_long>
+				<param name="view-id" type="uint">ID of the view to focus</param>
+			</method>
+			<method name="wm-actions/set-minimized">
+				<_short>Minimize/Unminimize view</_short>
+				<_long>Toggles the minimized state of a view.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">True to minimize, false to restore</param>
+			</method>
+			<method name="wm-actions/set-always-on-top">
+				<_short>Set always-on-top</_short>
+				<_long>Sets the always-on-top state of a view.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">Whether to set always-on-top</param>
+			</method>
+			<method name="wm-actions/set-fullscreen">
+				<_short>Set fullscreen</_short>
+				<_long>Sets the fullscreen state of a view.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">Whether to set fullscreen</param>
+			</method>
+			<method name="wm-actions/set-sticky">
+				<_short>Set sticky</_short>
+				<_long>Sets the sticky state of a view (visible on all workspaces).</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">Whether to set sticky</param>
+			</method>
+			<method name="wm-actions/send-to-back">
+				<_short>Send view to back</_short>
+				<_long>Sends the view behind all other views.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">Ignored</param>
+			</method>
+			<method name="wm-actions/bring-to-front">
+				<_short>Bring view to front</_short>
+				<_long>Brings the view to the front of the stack.</_long>
+				<param name="view-id" type="uint">ID of the view</param>
+				<param name="state" type="bool">Ignored</param>
+			</method>
+			<method name="input/get-cursor-position">
+				<_short>Get cursor position</_short>
+				<_long>Returns the current cursor position in global coordinates.</_long>
+				<returns name="x" type="double">X coordinate</returns>
+				<returns name="y" type="double">Y coordinate</returns>
+			</method>
+			<method name="input/warp-cursor">
+				<_short>Warp cursor</_short>
+				<_long>Moves the cursor to the specified position.</_long>
+				<param name="x" type="double">Target X coordinate</param>
+				<param name="y" type="double">Target Y coordinate</param>
+			</method>
+		</group>
 	</plugin>
 </wayfire>

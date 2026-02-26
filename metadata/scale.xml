@@ -2,7 +2,7 @@
 <wayfire>
 	<plugin name="scale">
 		<_short>Scale</_short>
-		<_long>Show all views on screen.</_long>
+		<_long>Show all views on screen with optional hot corner triggering.</_long>
 		<category>Accessibility</category>
 		<group>
 			<_short>Behavior</_short>
@@ -15,6 +15,88 @@
 				<_short>Toggle for all workspaces</_short>
 				<_long>Toggles scale showing windows from all workspaces.</_long>
 				<default></default>
+			</option>
+			<option name="corner_top_left" type="string">
+				<_short>Top-left corner action</_short>
+				<_long>Action to perform when pointer enters top-left corner zone.</_long>
+				<default>none</default>
+				<desc>
+					<value>none</value>
+					<_name>None</_name>
+				</desc>
+				<desc>
+					<value>scale</value>
+					<_name>Toggle scale (current workspace)</_name>
+				</desc>
+				<desc>
+					<value>scale_all</value>
+					<_name>Toggle scale (all workspaces)</_name>
+				</desc>
+			</option>
+			<option name="corner_top_right" type="string">
+				<_short>Top-right corner action</_short>
+				<_long>Action to perform when pointer enters top-right corner zone.</_long>
+				<default>none</default>
+				<desc>
+					<value>none</value>
+					<_name>None</_name>
+				</desc>
+				<desc>
+					<value>scale</value>
+					<_name>Toggle scale (current workspace)</_name>
+				</desc>
+				<desc>
+					<value>scale_all</value>
+					<_name>Toggle scale (all workspaces)</_name>
+				</desc>
+			</option>
+			<option name="corner_bottom_left" type="string">
+				<_short>Bottom-left corner action</_short>
+				<_long>Action to perform when pointer enters bottom-left corner zone.</_long>
+				<default>none</default>
+				<desc>
+					<value>none</value>
+					<_name>None</_name>
+				</desc>
+				<desc>
+					<value>scale</value>
+					<_name>Toggle scale (current workspace)</_name>
+				</desc>
+				<desc>
+					<value>scale_all</value>
+					<_name>Toggle scale (all workspaces)</_name>
+				</desc>
+			</option>
+			<option name="corner_bottom_right" type="string">
+				<_short>Bottom-right corner action</_short>
+				<_long>Action to perform when pointer enters bottom-right corner zone.</_long>
+				<default>scale</default>
+				<desc>
+					<value>none</value>
+					<_name>None</_name>
+				</desc>
+				<desc>
+					<value>scale</value>
+					<_name>Toggle scale (current workspace)</_name>
+				</desc>
+				<desc>
+					<value>scale_all</value>
+					<_name>Toggle scale (all workspaces)</_name>
+				</desc>
+			</option>
+			<option name="corner_zone_size" type="int">
+				<_short>Corner zone size</_short>
+				<_long>Size in pixels of the hot corner zones.</_long>
+				<default>20</default>
+				<min>1</min>
+				<max>200</max>
+			</option>
+			<option name="corner_delay" type="int">
+				<_short>Corner delay</_short>
+				<_long>Delay in milliseconds before corner action triggers. Prevents accidental activation.</_long>
+				<default>250</default>
+				<min>0</min>
+				<max>2000</max>
 			</option>
 			<option name="duration" type="animation">
 				<_short>Animation Transition Time</_short>
