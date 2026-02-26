@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""
+Simple Wayfire IPC client for controlling display adjustments and other plugins.
+Usage:
+    wayfire-ipc --method display/set-brightness --data '{"brightness": 1.2}'
+    wayfire-ipc --method display/get-state
+    wayfire-ipc --method display/increase-temperature --data '{"delta": 500}'
+"""
+
+import json
+import socket
+import argparse
+import sys
+import os
+
+DEFAULT_SOCKET = "/tmp/wayfire-ipc.sock"
+
+def find_wayfire_socket():
+    """Try to find the Wayfire IPC socket."""
+    # Check common locations
+    candidates = [
+        DEFAULT_SOCKET,
+        os.path.expanduser("~/.wayfire-ipc.sock"),
+        "/run/user/{}/wayfire-ipc.sock".format(os.getuid()),
+    ]
+    
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    
+    # Try to find from environment
+    if os.environ.get("WAYFIRE_SOCKET"):
+        return os.environ["WAYFIRE_SOCKET"]
+    
+    return None
+
+def call_ipc(method, data=None, socket_path=None):
+    """Call a Wayfire IPC method and return the response."""
+    if not socket_path:
+        socket_path = find_wayfire_socket()
+    
+    if not socket_path:
+        print(f"Error: Wayfire IPC socket not found. Tried: {DEFAULT_SOCKET}", file=sys.stderr)
+        print("Make sure Wayfire is running with the IPC plugin enabled.", file=sys.stderr)
+        sys.exit(1)
+    
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(5.0)
+        sock.connect(socket_path)
+        
+        request = {
+            "method": method,
+            "data": data or {}
+        }
+        
+        sock.send(json.dumps(request).encode())
+        response = sock.recv(65536)
+        sock.close()
+        
+        return json.loads(response.decode())
+    
+    except ConnectionRefusedError:
+        print(f"Error: Cannot connect to Wayfire IPC socket at {socket_path}", file=sys.stderr)
+        sys.exit(1)
+    except socket.timeout:
+        print("Error: IPC request timed out", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wayfire IPC client for controlling plugins",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --method display/get-state
+  %(prog)s --method display/set-brightness --data '{"brightness": 1.2}'
+  %(prog)s --method display/increase-temperature --data '{"delta": 500}'
+  %(prog)s --method zoom/zoomIn
+  %(prog)s --method wm-actions/close --data '{"view-id": 42}'
+  
+Available display methods:
+  display/set-brightness      - Set brightness (0.0001 to 2.0)
+  display/set-gamma           - Set gamma (0.1 to 3.0)
+  display/set-temperature     - Set temperature in Kelvin (1000-20000)
+  display/get-state           - Get current adjustment state
+  display/reset               - Reset all adjustments
+  display/increase-brightness - Increase brightness by delta
+  display/decrease-brightness - Decrease brightness by delta
+  display/increase-gamma      - Increase gamma by delta
+  display/decrease-gamma      - Decrease gamma by delta
+  display/increase-temperature - Increase temperature by delta K
+  display/decrease-temperature - Decrease temperature by delta K
+"""
+    )
+    
+    parser.add_argument("--method", "-m", required=True,
+                       help="IPC method to call")
+    parser.add_argument("--data", "-d", type=str, default="{}",
+                       help="JSON data to send (default: {})")
+    parser.add_argument("--socket", "-s", type=str,
+                       help="Path to Wayfire IPC socket")
+    parser.add_argument("--pretty", "-p", action="store_true",
+                       help="Pretty-print JSON output")
+    
+    args = parser.parse_args()
+    
+    try:
+        data = json.loads(args.data)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON data: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    response = call_ipc(args.method, data, args.socket)
+    
+    # Check for errors
+    if "error" in response:
+        print(f"Error: {response['error']}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Print response
+    if args.pretty:
+        print(json.dumps(response, indent=2))
+    else:
+        print(json.dumps(response))
+
+if __name__ == "__main__":
+    main()
