@@ -8,6 +8,7 @@ This document describes the enhancements made to Wayfire plugins, including new 
 2. [Scale Plugin](#scale-plugin)
 3. [Zoom Plugin](#zoom-plugin)
 4. [WM-Actions Plugin](#wm-actions-plugin)
+5. [Display Plugin](#display-plugin)
 
 ---
 
@@ -443,6 +444,194 @@ wayfire-ipc --method wm-actions/move --data '{"view-id": 42, "x": 100, "y": 200}
 # Close window
 wayfire-ipc --method wm-actions/close --data '{"view-id": 42}'
 ```
+
+---
+
+## Display Plugin
+
+### Overview
+The display plugin provides **per-monitor brightness, gamma, and color temperature adjustment** with keyboard shortcuts and IPC control. Uses GPU-accelerated shaders for smooth, real-time adjustments.
+
+### Configuration Options
+
+#### Default Values
+| Option | Type | Default | Range | Description |
+|--------|------|---------|-------|-------------|
+| `brightness` | double | 1.0 | 0.1 - 2.0 | Default brightness level |
+| `gamma` | double | 1.0 | 0.1 - 3.0 | Default gamma correction |
+| `temperature` | int | 6500 | 1000 - 20000 | Default color temperature in Kelvin |
+
+#### Keyboard Shortcuts
+| Option | Default | Action |
+|--------|---------|--------|
+| `brightness_up` | \<ctrl\> \<super\> KEY_B | Increase brightness by 0.1 |
+| `brightness_down` | \<ctrl\> \<super\> \<shift\> KEY_B | Decrease brightness by 0.1 |
+| `gamma_up` | \<ctrl\> \<super\> KEY_G | Increase gamma by 0.1 |
+| `gamma_down` | \<ctrl\> \<super\> \<shift\> KEY_G | Decrease gamma by 0.1 |
+| `temperature_up` | \<ctrl\> \<super\> KEY_T | Increase temperature by 500K (cooler) |
+| `temperature_down` | \<ctrl\> \<super\> \<shift\> KEY_T | Decrease temperature by 500K (warmer) |
+| `reset_all` | \<ctrl\> \<super\> KEY_R | Reset all adjustments to defaults |
+
+#### Animation
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `animation_duration` | animation | 300ms | Duration for smooth transitions |
+
+### IPC Methods
+
+#### `display/set-brightness`
+Sets the brightness level for the output.
+
+**Parameters:**
+- `brightness` (double, required): Brightness value (0.1 to 2.0)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/set-brightness", "data": {"brightness": 1.2, "animation": true}}
+```
+
+#### `display/set-gamma`
+Sets the gamma correction for the output.
+
+**Parameters:**
+- `gamma` (double, required): Gamma value (0.1 to 3.0)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/set-gamma", "data": {"gamma": 1.2}}
+```
+
+#### `display/set-temperature`
+Sets the color temperature for the output in Kelvin. Lower values are warmer (more red), higher values are cooler (more blue).
+
+**Parameters:**
+- `temperature` (int, required): Temperature in Kelvin (1000 to 20000)
+- `animation` (bool, optional): Whether to animate the transition (default: true)
+
+**Example:**
+```json
+{"method": "display/set-temperature", "data": {"temperature": 5500, "animation": true}}
+```
+
+#### `display/get-state`
+Returns the current display adjustment state.
+
+**Returns:**
+- `brightness` (double): Current brightness
+- `gamma` (double): Current gamma
+- `temperature` (int): Current temperature in Kelvin
+- `output_name` (string): Output name
+- `output_id` (uint): Output ID
+
+**Example:**
+```json
+{"method": "display/get-state"}
+```
+
+**Response:**
+```json
+{
+  "brightness": 1.2,
+  "gamma": 1.1,
+  "temperature": 5500,
+  "output_name": "DP-1",
+  "output_id": 93827465
+}
+```
+
+#### `display/reset`
+Resets all display adjustments to default values.
+
+**Example:**
+```json
+{"method": "display/reset"}
+```
+
+### Color Temperature Guide
+
+| Temperature (K) | Description | Use Case |
+|-----------------|-------------|----------|
+| 1000-3000 | Very Warm | Evening/night, reduces blue light |
+| 3000-4500 | Warm | Relaxing, evening use |
+| 4500-5500 | Neutral | General use, daylight simulation |
+| 5500-6500 | Cool | Daylight, focus work |
+| 6500+ | Very Cool | High focus, may cause eye strain |
+
+### Example Configuration
+```ini
+[display]
+# Default values
+brightness = 1.0
+gamma = 1.0
+temperature = 6500
+
+# Keyboard shortcuts
+brightness_up = <ctrl> <super> KEY_B
+brightness_down = <ctrl> <super> <shift> KEY_B
+gamma_up = <ctrl> <super> KEY_G
+gamma_down = <ctrl> <super> <shift> KEY_G
+temperature_up = <ctrl> <super> KEY_T
+temperature_down = <ctrl> <super> <shift> KEY_T
+reset_all = <ctrl> <super> KEY_R
+
+# Animation
+animation_duration = 300ms
+```
+
+### Usage Examples
+
+#### Python - Night Light Mode:
+```python
+import json
+import socket
+from datetime import datetime
+
+def call_ipc(method, data=None):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect("/tmp/wayfire-ipc.sock")
+    request = json.dumps({"method": method, "data": data or {}})
+    sock.send(request.encode())
+    response = sock.recv(4096)
+    sock.close()
+    return json.loads(response)
+
+# Enable night mode (warmer temperature in evening)
+hour = datetime.now().hour
+if hour >= 20 or hour < 7:  # 8 PM to 7 AM
+    call_ipc("display/set-temperature", {"temperature": 3500})
+    call_ipc("display/set-brightness", {"brightness": 0.8})
+else:
+    call_ipc("display/set-temperature", {"temperature": 6500})
+    call_ipc("display/set-brightness", {"brightness": 1.0})
+
+# Get current state
+state = call_ipc("display/get-state")
+print(f"Brightness: {state['brightness']}, Temperature: {state['temperature']}K")
+```
+
+#### Bash - Quick Adjustments:
+```bash
+# Increase brightness
+wayfire-ipc --method display/set-brightness --data '{"brightness": 1.3}'
+
+# Set warmer temperature for evening
+wayfire-ipc --method display/set-temperature --data '{"temperature": 4000}'
+
+# Reset all adjustments
+wayfire-ipc --method display/reset
+
+# Check current settings
+wayfire-ipc --method display/get-state
+```
+
+### Technical Notes
+- Requires GLES2 support (not available with Vulkan or Pixman renderer)
+- Adjustments are applied per-output (per-monitor)
+- Uses Tanner Helland's algorithm for color temperature calculation
+- All adjustments are GPU-accelerated for minimal performance impact
+- Smooth animations prevent jarring transitions
 
 ---
 

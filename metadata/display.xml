@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<wayfire>
+	<plugin name="display">
+		<_short>Display Adjustments</_short>
+		<_long>Per-monitor brightness, gamma, and color temperature adjustment with IPC and keyboard shortcuts.</_long>
+		<category>Accessibility</category>
+		<group>
+			<_short>Default Values</_short>
+			<option name="brightness" type="double">
+				<_short>Brightness</_short>
+				<_long>Default brightness level (0.1 to 2.0).</_long>
+				<default>1.0</default>
+				<precision>0.05</precision>
+				<min>0.1</min>
+				<max>2.0</max>
+			</option>
+			<option name="gamma" type="double">
+				<_short>Gamma</_short>
+				<_long>Default gamma correction (0.1 to 3.0).</_long>
+				<default>1.0</default>
+				<precision>0.05</precision>
+				<min>0.1</min>
+				<max>3.0</max>
+			</option>
+			<option name="temperature" type="int">
+				<_short>Color Temperature</_short>
+				<_long>Default color temperature in Kelvin (1000K to 20000K).</_long>
+				<default>6500</default>
+				<min>1000</min>
+				<max>20000</max>
+			</option>
+		</group>
+		<group>
+			<_short>Keyboard Shortcuts</_short>
+			<option name="brightness_up" type="key">
+				<_short>Increase Brightness</_short>
+				<_long>Increase brightness by 0.1.</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; KEY_B</default>
+			</option>
+			<option name="brightness_down" type="key">
+				<_short>Decrease Brightness</_short>
+				<_long>Decrease brightness by 0.1.</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_B</default>
+			</option>
+			<option name="gamma_up" type="key">
+				<_short>Increase Gamma</_short>
+				<_long>Increase gamma by 0.1.</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; KEY_G</default>
+			</option>
+			<option name="gamma_down" type="key">
+				<_short>Decrease Gamma</_short>
+				<_long>Decrease gamma by 0.1.</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_G</default>
+			</option>
+			<option name="temperature_up" type="key">
+				<_short>Increase Temperature</_short>
+				<_long>Increase color temperature by 500K (cooler).</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; KEY_T</default>
+			</option>
+			<option name="temperature_down" type="key">
+				<_short>Decrease Temperature</_short>
+				<_long>Decrease color temperature by 500K (warmer).</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; &lt;shift&gt; KEY_T</default>
+			</option>
+			<option name="reset_all" type="key">
+				<_short>Reset All</_short>
+				<_long>Reset all adjustments to default values.</_long>
+				<default>&lt;ctrl&gt; &lt;super&gt; KEY_R</default>
+			</option>
+		</group>
+		<group>
+			<_short>Animation</_short>
+			<option name="animation_duration" type="animation">
+				<_short>Animation Duration</_short>
+				<_long>Duration for smooth transitions when adjusting values.</_long>
+				<default>300ms</default>
+				<min>0</min>
+			</option>
+		</group>
+		<group>
+			<_short>IPC Methods</_short>
+			<_long>Methods available via the IPC interface for programmatic control.</_long>
+			<method name="display/set-brightness">
+				<_short>Set brightness</_short>
+				<_long>Sets the brightness level for the output.</_long>
+				<param name="brightness" type="double">Brightness value (0.1 to 2.0)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/set-gamma">
+				<_short>Set gamma</_short>
+				<_long>Sets the gamma correction for the output.</_long>
+				<param name="gamma" type="double">Gamma value (0.1 to 3.0)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/set-temperature">
+				<_short>Set color temperature</_short>
+				<_long>Sets the color temperature for the output in Kelvin.</_long>
+				<param name="temperature" type="int">Temperature in Kelvin (1000 to 20000)</param>
+				<param name="animation" type="bool">Whether to animate the transition (default: true)</param>
+			</method>
+			<method name="display/get-state">
+				<_short>Get current state</_short>
+				<_long>Returns the current display adjustment state.</_long>
+				<returns name="brightness" type="double">Current brightness</returns>
+				<returns name="gamma" type="double">Current gamma</returns>
+				<returns name="temperature" type="int">Current temperature in Kelvin</returns>
+				<returns name="output_name" type="string">Output name</returns>
+				<returns name="output_id" type="uint">Output ID</returns>
+			</method>
+			<method name="display/reset">
+				<_short>Reset all adjustments</_short>
+				<_long>Resets all display adjustments to default values.</_long>
+			</method>
+		</group>
+	</plugin>
+</wayfire>
