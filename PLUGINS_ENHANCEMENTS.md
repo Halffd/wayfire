@@ -405,12 +405,32 @@ Moves the cursor to the specified position.
 
 ### Usage Examples
 
-#### Python Example - Get all windows and focus one:
+#### Using the wayfire-ipc Client
+
+The `wayfire-ipc` Python script provides a simple command-line interface for all IPC methods.
+Requires Python 3 and the Wayfire IPC plugin to be enabled.
+
+```bash
+# Get display state
+wayfire-ipc --method display/get-state --pretty
+
+# Set brightness
+wayfire-ipc --method display/set-brightness --data '{"brightness": 1.2}'
+
+# Increase temperature (cooler)
+wayfire-ipc --method display/increase-temperature --data '{"delta": 500}'
+
+# Reset all adjustments
+wayfire-ipc --method display/reset
+```
+
+#### Python Example - Programmatic Control:
 ```python
 import json
 import socket
 
 def call_ipc(method, data=None):
+    """Call Wayfire IPC method and return response."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect("/tmp/wayfire-ipc.sock")
     request = json.dumps({"method": method, "data": data or {}})
@@ -430,13 +450,16 @@ call_ipc("wm-actions/focus", {"view-id": 42})
 call_ipc("input/warp-cursor", {"x": 960, "y": 540})
 ```
 
-#### Bash Example - Using wayfire-ipc client:
+#### Bash Script Examples:
 ```bash
+#!/bin/bash
+# Example bash script using wayfire-ipc
+
 # Zoom in
 wayfire-ipc --method zoom/zoomIn --data '{"delta": 0.5}'
 
 # Get cursor position
-wayfire-ipc --method input/get-cursor-position
+wayfire-ipc --method input/get-cursor-position --pretty
 
 # Move window
 wayfire-ipc --method wm-actions/move --data '{"view-id": 42, "x": 100, "y": 200}'
@@ -654,7 +677,26 @@ animation_duration = 300ms
 
 ### Usage Examples
 
-#### Python - Night Light Mode:
+#### Using the wayfire-ipc Client
+
+The `wayfire-ipc` Python script provides a simple command-line interface.
+Make sure Python 3 is installed and the IPC plugin is enabled in Wayfire.
+
+```bash
+# Get display state
+wayfire-ipc --method display/get-state --pretty
+
+# Set brightness
+wayfire-ipc --method display/set-brightness --data '{"brightness": 1.2}'
+
+# Increase temperature (cooler)
+wayfire-ipc --method display/increase-temperature --data '{"delta": 500}'
+
+# Reset all adjustments
+wayfire-ipc --method display/reset
+```
+
+#### Python Example - Night Light Mode:
 ```python
 import json
 import socket
@@ -683,19 +725,58 @@ state = call_ipc("display/get-state")
 print(f"Brightness: {state['brightness']}, Temperature: {state['temperature']}K")
 ```
 
-#### Bash - Quick Adjustments:
+#### Bash Script Example:
 ```bash
+#!/bin/bash
+# Quick display adjustment script
+
 # Increase brightness
-wayfire-ipc --method display/set-brightness --data '{"brightness": 1.3}'
+wayfire-ipc --method display/increase-brightness --data '{"delta": 0.2}'
 
 # Set warmer temperature for evening
 wayfire-ipc --method display/set-temperature --data '{"temperature": 4000}'
 
-# Reset all adjustments
-wayfire-ipc --method display/reset
-
 # Check current settings
-wayfire-ipc --method display/get-state
+wayfire-ipc --method display/get-state --pretty
+```
+
+#### Window Management Examples:
+```bash
+# Get window geometry
+wayfire-ipc --method wm-actions/get-geometry --data '{"view-id": 42}' --pretty
+
+# Focus a window
+wayfire-ipc --method wm-actions/focus --data '{"view-id": 42}'
+
+# Move window
+wayfire-ipc --method wm-actions/move --data '{"view-id": 42, "x": 100, "y": 200}'
+
+# Close window
+wayfire-ipc --method wm-actions/close --data '{"view-id": 42}'
+
+# Get cursor position
+wayfire-ipc --method input/get-cursor-position --pretty
+
+# Move cursor to center
+wayfire-ipc --method input/warp-cursor --data '{"x": 960, "y": 540}'
+```
+
+#### Zoom Control Examples:
+```bash
+# Zoom in
+wayfire-ipc --method zoom/zoomIn --data '{"delta": 0.5}'
+
+# Zoom out
+wayfire-ipc --method zoom/zoomOut --data '{"delta": 0.5}'
+
+# Set specific zoom level
+wayfire-ipc --method zoom/setZoom --data '{"factor": 2.0}'
+
+# Get zoom state
+wayfire-ipc --method zoom/getZoom --pretty
+
+# Reset zoom
+wayfire-ipc --method zoom/setZoom --data '{"factor": 1.0}'
 ```
 
 ### Technical Notes
