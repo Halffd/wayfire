@@ -141,11 +141,19 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         ipc_repo->register_method("display/decrease-temperature", ipc_decrease_temperature);
 
         // Compile shader
+        bool shader_compiled = false;
         wf::gles::run_in_context([&]
         {
             program.set_simple(OpenGL::compile_program(display_vertex_shader, display_fragment_shader));
+            shader_compiled = (program.get_program_id(wf::TEXTURE_TYPE_RGBA) != 0);
         });
-        
+
+        if (!shader_compiled)
+        {
+            LOGE("display: Failed to compile shader program!");
+            return;
+        }
+
         set_hook();
     }
 
@@ -414,6 +422,13 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         current_gamma = gamma_animation;
         current_temperature = (int)(double)temperature_animation;
 
+        // Check if program is valid
+        if (program.get_program_id(wf::TEXTURE_TYPE_RGBA) == 0)
+        {
+            unset_hook();
+            return;
+        }
+
         // Check if we need to render
         bool needs_render = (std::abs(current_brightness - 1.0) > 0.001) ||
                            (std::abs(current_gamma - 1.0) > 0.001) ||
@@ -455,8 +470,13 @@ class wayfire_display_output_t : public wf::per_output_plugin_instance_t
         float r_mult, g_mult, b_mult;
         calculate_temperature_rgb(current_temperature, r_mult, g_mult, b_mult);
 
-        wf::gles::run_in_context([&]
+        wf::gles::run_in_context_if_gles([&]
         {
+            if (program.get_program_id(wf::TEXTURE_TYPE_RGBA) == 0)
+            {
+                return;
+            }
+            
             wf::gles::bind_render_buffer(destination);
             program.use(wf::TEXTURE_TYPE_RGBA);
             GL_CALL(glBindTexture(GL_TEXTURE_2D, wf::gles_texture_t::from_aux(source).tex_id));
