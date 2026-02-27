@@ -23,6 +23,7 @@ class wayfire_fast_switcher : public wf::per_output_plugin_instance_t, public wf
     wf::option_wrapper_t<wf::keybinding_t> activate_key{"fast-switcher/activate"};
     wf::option_wrapper_t<wf::keybinding_t> activate_key_backward{
         "fast-switcher/activate_backward"};
+    wf::option_wrapper_t<wf::keybinding_t> quick_switch_key{"fast-switcher/quick_switch"};
     wf::option_wrapper_t<double> inactive_alpha{"fast-switcher/inactive_alpha"};
     std::vector<wayfire_toplevel_view> views; // all views on current viewport
     size_t current_view_index = 0;
@@ -30,6 +31,10 @@ class wayfire_fast_switcher : public wf::per_output_plugin_instance_t, public wf
     uint32_t activating_modifiers = 0;
     bool active = false;
     std::unique_ptr<wf::input_grab_t> input_grab;
+
+    // For quick switch (Alt+Tab style) - toggles between last 2 windows
+    bool quick_switch_active = false;
+    wayfire_toplevel_view quick_switch_last_view = nullptr;
 
     wf::plugin_activation_data_t grab_interface = {
         .name = "fast-switcher",
@@ -41,6 +46,7 @@ class wayfire_fast_switcher : public wf::per_output_plugin_instance_t, public wf
     {
         output->add_key(activate_key, &fast_switch);
         output->add_key(activate_key_backward, &fast_switch_backward);
+        output->add_key(quick_switch_key, &quick_switch);
         input_grab = std::make_unique<wf::input_grab_t>("fast-switch", output, this, nullptr, nullptr);
         grab_interface.cancel = [=] () { switch_terminate(); };
     }
@@ -184,6 +190,30 @@ class wayfire_fast_switcher : public wf::per_output_plugin_instance_t, public wf
         return do_switch(false);
     };
 
+    wf::key_callback quick_switch = [=] (auto)
+    {
+        return quick_switch_toggle();
+    };
+
+    bool quick_switch_toggle()
+    {
+        update_views();
+        
+        if (views.size() < 2)
+        {
+            return false;
+        }
+        
+        // Toggle between the first two views (most recently focused)
+        // views[0] is the currently focused view, views[1] is the previously focused
+        wayfire_toplevel_view other_view = views[1];
+        
+        // Focus the other view
+        wf::get_core().default_wm->focus_raise_view(other_view);
+        
+        return true;
+    }
+
     void switch_terminate()
     {
         // May modify alpha
@@ -228,6 +258,7 @@ class wayfire_fast_switcher : public wf::per_output_plugin_instance_t, public wf
 
         output->rem_binding(&fast_switch);
         output->rem_binding(&fast_switch_backward);
+        output->rem_binding(&quick_switch);
     }
 };
 

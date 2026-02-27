@@ -14,6 +14,11 @@
 			<_long>Activates fast switcher with the specified key, moving to the previous view.</_long>
 			<default>&lt;alt&gt; &lt;shift&gt; KEY_ESC</default>
 		</option>
+		<option name="quick_switch" type="key">
+			<_short>Quick switch</_short>
+			<_long>Quickly toggle between the last two windows (Alt+Tab style). Each press switches to the other window.</_long>
+			<default>&lt;alt&gt; KEY_TAB</default>
+		</option>
 		<option name="inactive_alpha" type="double">
 			<_short>Inactive Opacity</_short>
 			<_long>Set the opacity value of the inactive windows.</_long>
