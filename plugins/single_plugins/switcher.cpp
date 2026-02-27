@@ -381,8 +381,20 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         // Calculate number of columns that fit in grid width
         grid_cols = std::max(1, (int)(grid_width / thumbnail_width));
         
+        // Ensure at least 1 column
+        if (grid_cols < 1)
+        {
+            grid_cols = 1;
+        }
+        
         // Calculate number of rows needed
         grid_rows = (view_count + grid_cols - 1) / grid_cols;
+        
+        // Ensure at least 1 row
+        if (grid_rows < 1)
+        {
+            grid_rows = 1;
+        }
     }
 
     /* Calculate the target geometry for a thumbnail at given grid position */

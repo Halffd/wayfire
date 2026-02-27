@@ -86,13 +86,33 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
 
     wf::key_callback zoom_in_binding = [=] (auto)
     {
-        update_zoom_target(-1.0);
+        // Zoom in by 10% increments
+        float current = progression.end;
+        float target = std::min(current * 1.1f, 50.0f);
+        progression.animate(target);
+        
+        if (!hook_set)
+        {
+            hook_set = true;
+            output->render->add_post(&render_hook);
+            output->render->set_redraw_always();
+        }
         return false;
     };
 
     wf::key_callback zoom_out_binding = [=] (auto)
     {
-        update_zoom_target(1.0);
+        // Zoom out by 10% decrements
+        float current = progression.end;
+        float target = std::max(current / 1.1f, 1.0f);
+        progression.animate(target);
+        
+        if (!hook_set)
+        {
+            hook_set = true;
+            output->render->add_post(&render_hook);
+            output->render->set_redraw_always();
+        }
         return false;
     };
 

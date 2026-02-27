@@ -13,24 +13,39 @@ import argparse
 import sys
 import os
 
-DEFAULT_SOCKET = "/tmp/wayfire-ipc.sock"
+DEFAULT_SOCKET = None  # Will be auto-detected
 
 def find_wayfire_socket():
     """Try to find the Wayfire IPC socket."""
+    import glob
+    
+    # Check environment variable first
+    if os.environ.get("WAYFIRE_SOCKET"):
+        return os.environ["WAYFIRE_SOCKET"]
+    
     # Check common locations
     candidates = [
-        DEFAULT_SOCKET,
         os.path.expanduser("~/.wayfire-ipc.sock"),
-        "/run/user/{}/wayfire-ipc.sock".format(os.getuid()),
+        "/tmp/wayfire-ipc.sock",
     ]
     
     for path in candidates:
         if os.path.exists(path):
             return path
     
-    # Try to find from environment
-    if os.environ.get("WAYFIRE_SOCKET"):
-        return os.environ["WAYFIRE_SOCKET"]
+    # Try to find socket in /tmp and /run (pattern: wayfire-*.socket)
+    for pattern in ["/tmp/wayfire-*.socket", "/run/user/*/wayfire-*.socket"]:
+        sockets = glob.glob(pattern)
+        if sockets:
+            return sockets[0]
+    
+    # Try XDG_RUNTIME_DIR
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        pattern = os.path.join(runtime_dir, "wayfire-*.socket")
+        sockets = glob.glob(pattern)
+        if sockets:
+            return sockets[0]
     
     return None
 
@@ -40,8 +55,14 @@ def call_ipc(method, data=None, socket_path=None):
         socket_path = find_wayfire_socket()
     
     if not socket_path:
-        print(f"Error: Wayfire IPC socket not found. Tried: {DEFAULT_SOCKET}", file=sys.stderr)
-        print("Make sure Wayfire is running with the IPC plugin enabled.", file=sys.stderr)
+        print("Error: Wayfire IPC socket not found.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Make sure:", file=sys.stderr)
+        print("  1. Wayfire is running", file=sys.stderr)
+        print("  2. The IPC plugin is enabled in wayfire.ini", file=sys.stderr)
+        print("  3. Check for sockets matching: /tmp/wayfire-*.socket", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("You can also set WAYFIRE_SOCKET environment variable", file=sys.stderr)
         sys.exit(1)
     
     try:
