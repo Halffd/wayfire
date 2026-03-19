@@ -51,7 +51,16 @@ class bindings_repository_t
     void add_activator(option_sptr_t<activatorbinding_t> activator, wf::activator_callback *cb);
 
     /**
-     * Handle a keybinding pressed by the user.
+     * Register a key binding that triggers on a specific key event state (press/release/repeat).
+     * 
+     * @param key The keybinding to register.
+     * @param cb The callback to execute when the binding is triggered.
+     * @param state The binding state to trigger on (PRESS, RELEASE, or REPEAT).
+     */
+    void add_key(option_sptr_t<keybinding_t> key, wf::key_callback *cb, wf::binding_state_t state);
+
+    /**
+     * Handle a keybinding event by the user.
      *
      * @param pressed The keybinding which was triggered.
      * @param mod_binding_key The modifier which triggered the binding, if any.
@@ -59,6 +68,17 @@ class bindings_repository_t
      * @return true if any of the matching registered bindings consume the event.
      */
     bool handle_key(const wf::keybinding_t& pressed, uint32_t mod_binding_key);
+
+    /**
+     * Handle a keybinding event with a specific state (press/release/repeat).
+     *
+     * @param pressed The keybinding which was triggered.
+     * @param mod_binding_key The modifier which triggered the binding, if any.
+     * @param state The state of the key event (PRESS, RELEASE, or REPEAT).
+     *
+     * @return true if any of the matching registered bindings consume the event.
+     */
+    bool handle_key(const wf::keybinding_t& pressed, uint32_t mod_binding_key, wf::binding_state_t state);
 
     /** Handle an axis event. */
     bool handle_axis(uint32_t modifiers, wlr_pointer_axis_event *ev);

@@ -56,6 +56,7 @@ class output_impl_t : public output_t
     void add_axis(option_sptr_t<keybinding_t> axis, wf::axis_callback*) override;
     void add_button(option_sptr_t<buttonbinding_t> button, wf::button_callback*) override;
     void add_activator(option_sptr_t<activatorbinding_t> activator, wf::activator_callback*) override;
+    void add_key(option_sptr_t<keybinding_t> key, wf::key_callback*, wf::binding_state_t state) override;
     void rem_binding(void *callback) override;
 
     /** Set the effective resolution of the output */

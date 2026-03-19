@@ -26,6 +26,22 @@ void wf::bindings_repository_t::add_key(option_sptr_t<keybinding_t> key, wf::key
     push_binding(priv->keys, key, cb);
 }
 
+void wf::bindings_repository_t::add_key(option_sptr_t<keybinding_t> key, wf::key_callback *cb, wf::binding_state_t state)
+{
+    switch (state)
+    {
+      case binding_state_t::PRESS:
+        push_binding(priv->keys_press, key, cb);
+        break;
+      case binding_state_t::RELEASE:
+        push_binding(priv->keys_release, key, cb);
+        break;
+      case binding_state_t::REPEAT:
+        push_binding(priv->keys_repeat, key, cb);
+        break;
+    }
+}
+
 void wf::bindings_repository_t::add_axis(option_sptr_t<keybinding_t> axis, wf::axis_callback *cb)
 {
     push_binding(priv->axes, axis, cb);
@@ -55,6 +71,8 @@ bool wf::bindings_repository_t::handle_key(const wf::keybinding_t& pressed,
     }
 
     std::vector<std::function<bool()>> callbacks;
+    
+    // Check regular key bindings (triggered on press by default)
     for (auto& binding : this->priv->keys)
     {
         if (binding->activated_by->get_value() == pressed)
@@ -69,12 +87,93 @@ bool wf::bindings_repository_t::handle_key(const wf::keybinding_t& pressed,
         }
     }
 
+    // Check state-based key bindings (PRESS state)
+    for (auto& binding : this->priv->keys_press)
+    {
+        if (binding->activated_by->get_value() == pressed)
+        {
+            auto callback = binding->callback;
+            callbacks.emplace_back([pressed, callback] ()
+            {
+                return (*callback)(pressed);
+            });
+        }
+    }
+
     for (auto& binding : this->priv->activators)
     {
         if (binding->activated_by->get_value().has_match(pressed))
         {
             /* We must be careful because the callback might be erased,
              * so force copy the callback into the lambda */
+            auto callback = binding->callback;
+            callbacks.emplace_back([pressed, callback, mod_binding_key] ()
+            {
+                wf::activator_data_t ev = {
+                    .source = activator_source_t::KEYBINDING,
+                    .activation_data = pressed.get_key()
+                };
+
+                if (mod_binding_key)
+                {
+                    ev.source = activator_source_t::MODIFIERBINDING;
+                    ev.activation_data = mod_binding_key;
+                }
+
+                return (*callback)(ev);
+            });
+        }
+    }
+
+    bool handled = false;
+    for (auto& cb : callbacks)
+    {
+        handled |= cb();
+    }
+
+    return handled;
+}
+
+bool wf::bindings_repository_t::handle_key(const wf::keybinding_t& pressed,
+    uint32_t mod_binding_key, wf::binding_state_t state)
+{
+    if (!priv->enabled)
+    {
+        return false;
+    }
+
+    std::vector<std::function<bool()>> callbacks;
+    
+    // Select the appropriate key container based on state
+    const auto* keys = &priv->keys;
+    if (state == binding_state_t::PRESS)
+    {
+        keys = &priv->keys_press;
+    } else if (state == binding_state_t::RELEASE)
+    {
+        keys = &priv->keys_release;
+    } else if (state == binding_state_t::REPEAT)
+    {
+        keys = &priv->keys_repeat;
+    }
+    
+    for (auto& binding : *keys)
+    {
+        if (binding->activated_by->get_value() == pressed)
+        {
+            auto callback = binding->callback;
+            callbacks.emplace_back([pressed, callback] ()
+            {
+                return (*callback)(pressed);
+            });
+        }
+    }
+
+    // Also check activators
+    for (auto& binding : this->priv->activators)
+    {
+        if (binding->activated_by->get_value().has_match(pressed))
+        {
             auto callback = binding->callback;
             callbacks.emplace_back([pressed, callback, mod_binding_key] ()
             {

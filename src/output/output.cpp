@@ -362,6 +362,21 @@ void output_impl_t::add_key(option_sptr_t<keybinding_t> key, wf::key_callback *c
     wf::get_core().bindings->add_key(key, &key_map[callback]);
 }
 
+void output_impl_t::add_key(option_sptr_t<keybinding_t> key, wf::key_callback *callback, wf::binding_state_t state)
+{
+    this->key_map[callback] = [=] (const wf::keybinding_t& kb)
+    {
+        if (this != wf::get_core().seat->get_active_output())
+        {
+            return false;
+        }
+
+        return (*callback)(kb);
+    };
+
+    wf::get_core().bindings->add_key(key, &key_map[callback], state);
+}
+
 void output_impl_t::add_axis(option_sptr_t<keybinding_t> axis,
     wf::axis_callback *callback)
 {

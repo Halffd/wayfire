@@ -331,6 +331,12 @@ bool wf::keyboard_t::handle_keyboard_key(uint32_t key, uint32_t state)
     auto mod = mod_from_key(key);
     input->locked_mods = this->get_locked_mods();
 
+    wf::binding_state_t binding_state = wf::binding_state_t::PRESS;
+    if (state == WLR_KEY_RELEASED)
+    {
+        binding_state = wf::binding_state_t::RELEASE;
+    }
+
     if (state == WLR_KEY_PRESSED)
     {
         if (check_vt_switch(wf::get_core().session, key, get_modifiers()))
@@ -354,7 +360,7 @@ bool wf::keyboard_t::handle_keyboard_key(uint32_t key, uint32_t state)
         }
 
         handled_in_plugin |= wf::get_core().bindings->handle_key(
-            wf::keybinding_t{get_modifiers(), key}, mod_binding_key);
+            wf::keybinding_t{get_modifiers(), key}, mod_binding_key, binding_state);
     } else
     {
         if (mod_binding_key != 0)
@@ -367,7 +373,7 @@ bool wf::keyboard_t::handle_keyboard_key(uint32_t key, uint32_t state)
             if ((timeout <= 0) || (time_elapsed < milliseconds(timeout)))
             {
                 wf::get_core().bindings->handle_key(
-                    wf::keybinding_t{get_modifiers() | mod, 0}, mod_binding_key);
+                    wf::keybinding_t{get_modifiers() | mod, 0}, mod_binding_key, binding_state);
             }
         }
 

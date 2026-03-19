@@ -11,6 +11,19 @@ namespace wf
 struct touchgesture_t;
 
 /**
+ * Describes the state of a key binding event.
+ */
+enum class binding_state_t
+{
+    /** Key was pressed */
+    PRESS,
+    /** Key was released */
+    RELEASE,
+    /** Key is being held and repeating */
+    REPEAT,
+};
+
+/**
  * A callback for key bindings.
  * Receives as a parameter the key combination which activated it.
  *

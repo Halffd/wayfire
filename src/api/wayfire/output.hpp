@@ -200,6 +200,15 @@ class output_t : public wf::object_base_t, public wf::signal::provider_t
     virtual void add_activator(option_sptr_t<activatorbinding_t> activator, wf::activator_callback*) = 0;
 
     /**
+     * Register a key binding that triggers on a specific key event state.
+     * 
+     * @param key The keybinding to register.
+     * @param callback The callback to execute when triggered.
+     * @param state The binding state (PRESS, RELEASE, or REPEAT).
+     */
+    virtual void add_key(option_sptr_t<keybinding_t> key, wf::key_callback*, wf::binding_state_t state) = 0;
+
+    /**
      * Remove all bindings which have the given callback, regardless of the type.
      */
     virtual void rem_binding(void *callback) = 0;

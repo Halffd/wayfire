@@ -29,6 +29,11 @@ struct wf::bindings_repository_t::impl
     void reparse_extensions();
 
     binding_container_t<wf::keybinding_t, key_callback> keys;
+    // Separate containers for state-based bindings
+    binding_container_t<wf::keybinding_t, key_callback> keys_press;
+    binding_container_t<wf::keybinding_t, key_callback> keys_release;
+    binding_container_t<wf::keybinding_t, key_callback> keys_repeat;
+    
     binding_container_t<wf::keybinding_t, axis_callback> axes;
     binding_container_t<wf::buttonbinding_t, button_callback> buttons;
     binding_container_t<wf::activatorbinding_t, activator_callback> activators;
