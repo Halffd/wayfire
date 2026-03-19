@@ -60,13 +60,19 @@ A dedicated plugin that shows a **grid of window thumbnails** when pressing Alt+
 | `thumbnail_width` | int | 500 | Width of each thumbnail in pixels (100-2000) |
 | `grid_width_percent` | int | 90 | Grid width as percentage of screen (50-100) |
 | `animation_duration` | animation | 200ms | Duration of grid animation |
+| `show_titles` | bool | true | Display window titles below thumbnails |
+| `highlight_color` | string | "0.4 0.6 1.0 1.0" | Highlight border color (r g b a format) |
+| `border_width` | int | 4 | Width of highlight border in pixels |
 
 ### Features
 - **Grid Layout**: Automatic rows/columns based on window count
-- **Thumbnail Highlighting**: Selected window is highlighted (full opacity)
+- **Window Titles**: Displayed below each thumbnail (truncated if long)
+- **Thumbnail Highlighting**: Selected window highlighted with colored border
 - **Non-selected Windows**: Shown at 60% opacity
 - **Key Release Trigger**: Actions trigger on key release for better UX
 - **Alt-Release Detection**: Grid closes when Alt key is released
+- **Mouse Support**: Click on thumbnail to select and activate
+- **Arrow Key Navigation**: Use arrow keys to navigate grid
 
 ### Example Configuration
 ```ini
@@ -79,14 +85,22 @@ activate_backward = <alt> <shift> KEY_TAB
 thumbnail_width = 500
 grid_width_percent = 90
 animation_duration = 200ms
+
+# Title and highlight options
+show_titles = true
+highlight_color = 0.4 0.6 1.0 1.0
+border_width = 4
 ```
 
 ### Usage
 1. **Press Alt+Tab** - Grid appears with all windows
 2. **Keep holding Alt** - Grid stays visible
-3. **Press Tab** - Cycle to next window (highlighted)
-4. **Press Shift+Tab** - Cycle to previous window
-5. **Release Alt** - Grid closes, selected window is focused
+3. **Navigate**:
+   - **Tab** - Cycle to next window
+   - **Shift+Tab** - Cycle to previous window
+   - **Arrow Keys** - Navigate in grid direction
+   - **Mouse Click** - Click thumbnail to select
+4. **Release Alt** - Grid closes, selected window is focused
 
 ### Differences from Switcher Plugin
 | Feature | Switcher | Switcher Grid |
@@ -94,6 +108,10 @@ animation_duration = 200ms
 | Thumbnail Size | 600px (default) | 500px (default) |
 | Grid Coverage | 90% | 90% |
 | Animation | 500ms | 200ms |
+| Window Titles | No | **Yes** |
+| Mouse Support | No | **Yes** |
+| Arrow Keys | No | **Yes** |
+| Highlight Border | No | **Yes** |
 | Key Trigger | Press | Release |
 | Purpose | General window switching | Quick Alt+Tab style |
 
