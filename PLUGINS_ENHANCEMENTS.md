@@ -5,12 +5,13 @@ This document describes the enhancements made to Wayfire plugins, including new 
 ## Table of Contents
 
 1. [Switcher Plugin](#switcher-plugin)
-2. [Scale Plugin](#scale-plugin)
-3. [Zoom Plugin](#zoom-plugin)
-4. [WM-Actions Plugin](#wm-actions-plugin)
-5. [Display Plugin](#display-plugin)
-6. [Fast Switcher Plugin](#fast-switcher-plugin)
-7. [Key Release/Repeat API](#key-releaserepeat-api)
+2. [Switcher Grid Plugin](#switcher-grid-plugin)
+3. [Scale Plugin](#scale-plugin)
+4. [Zoom Plugin](#zoom-plugin)
+5. [WM-Actions Plugin](#wm-actions-plugin)
+6. [Display Plugin](#display-plugin)
+7. [Fast Switcher Plugin](#fast-switcher-plugin)
+8. [Key Release/Repeat API](#key-releaserepeat-api)
 
 ---
 
@@ -42,6 +43,59 @@ speed = 500
 next_view = <alt> KEY_TAB
 prev_view = <alt> <shift> KEY_TAB
 ```
+
+---
+
+## Switcher Grid Plugin
+
+### Overview
+A dedicated plugin that shows a **grid of window thumbnails** when pressing Alt+Tab, with each thumbnail at 500px width covering 90% of the screen.
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `activate` | key | \<alt\> KEY_TAB | Switch to next window in grid |
+| `activate_backward` | key | \<alt\> \<shift\> KEY_TAB | Switch to previous window in grid |
+| `thumbnail_width` | int | 500 | Width of each thumbnail in pixels (100-2000) |
+| `grid_width_percent` | int | 90 | Grid width as percentage of screen (50-100) |
+| `animation_duration` | animation | 200ms | Duration of grid animation |
+
+### Features
+- **Grid Layout**: Automatic rows/columns based on window count
+- **Thumbnail Highlighting**: Selected window is highlighted (full opacity)
+- **Non-selected Windows**: Shown at 60% opacity
+- **Key Release Trigger**: Actions trigger on key release for better UX
+- **Alt-Release Detection**: Grid closes when Alt key is released
+
+### Example Configuration
+```ini
+[switcher-grid]
+# Keybindings
+activate = <alt> KEY_TAB
+activate_backward = <alt> <shift> KEY_TAB
+
+# Grid appearance
+thumbnail_width = 500
+grid_width_percent = 90
+animation_duration = 200ms
+```
+
+### Usage
+1. **Press Alt+Tab** - Grid appears with all windows
+2. **Keep holding Alt** - Grid stays visible
+3. **Press Tab** - Cycle to next window (highlighted)
+4. **Press Shift+Tab** - Cycle to previous window
+5. **Release Alt** - Grid closes, selected window is focused
+
+### Differences from Switcher Plugin
+| Feature | Switcher | Switcher Grid |
+|---------|----------|---------------|
+| Thumbnail Size | 600px (default) | 500px (default) |
+| Grid Coverage | 90% | 90% |
+| Animation | 500ms | 200ms |
+| Key Trigger | Press | Release |
+| Purpose | General window switching | Quick Alt+Tab style |
 
 ---
 
