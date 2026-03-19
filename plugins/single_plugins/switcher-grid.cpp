@@ -1,0 +1,472 @@
+#include <wayfire/per-output-plugin.hpp>
+#include <wayfire/output.hpp>
+#include <wayfire/scene-operations.hpp>
+#include <wayfire/scene-render.hpp>
+#include <wayfire/scene.hpp>
+#include <wayfire/view-helpers.hpp>
+#include <wayfire/view-transform.hpp>
+#include <wayfire/opengl.hpp>
+#include <wayfire/render-manager.hpp>
+#include <wayfire/workspace-set.hpp>
+#include <wayfire/util/duration.hpp>
+#include <wayfire/seat.hpp>
+#include <wayfire/window-manager.hpp>
+#include <wayfire/plugins/common/input-grab.hpp>
+#include <wayfire/plugins/common/util.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <vector>
+
+constexpr const char *SWITCHER_GRID_TRANSFORMER = "switcher-grid";
+
+class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public wf::keyboard_interaction_t
+{
+    // Configuration
+    wf::option_wrapper_t<wf::keybinding_t> activate_key{"switcher-grid/activate"};
+    wf::option_wrapper_t<wf::keybinding_t> activate_backward{"switcher-grid/activate_backward"};
+    wf::option_wrapper_t<int> thumbnail_width{"switcher-grid/thumbnail_width"};
+    wf::option_wrapper_t<int> grid_width_percent{"switcher-grid/grid_width_percent"};
+    wf::option_wrapper_t<wf::animation_description_t> animation_duration{"switcher-grid/animation_duration"};
+
+    // State
+    bool active = false;
+    int selected_index = 0;
+    std::vector<wayfire_toplevel_view> views;
+    std::unique_ptr<wf::input_grab_t> input_grab;
+
+    // Animation
+    wf::animation::simple_animation_t fade_animation{animation_duration};
+
+    // Grid layout
+    int grid_cols = 0;
+    int grid_rows = 0;
+    int thumb_width = 500;
+    float grid_width_pct = 0.9f;
+
+    wf::plugin_activation_data_t grab_interface = {
+        .name = SWITCHER_GRID_TRANSFORMER,
+        .capabilities = wf::CAPABILITY_MANAGE_COMPOSITOR,
+        .cancel = [=] () { switcher_done(); },
+    };
+
+    struct view_transform_data
+    {
+        wf::geometry_t target_geometry;
+        float scale_x = 1.0f;
+        float scale_y = 1.0f;
+        float offset_x = 0.0f;
+        float offset_y = 0.0f;
+        float alpha = 1.0f;
+    };
+
+    std::map<wayfire_toplevel_view, view_transform_data> view_data;
+
+    class switcher_render_node_t : public wf::scene::node_t
+    {
+        class switcher_render_instance_t : public wf::scene::render_instance_t
+        {
+            std::shared_ptr<switcher_render_node_t> self;
+            wf::scene::damage_callback push_damage;
+
+          public:
+            switcher_render_instance_t(switcher_render_node_t *self, wf::scene::damage_callback push_damage)
+            {
+                this->self = std::dynamic_pointer_cast<switcher_render_node_t>(self->shared_from_this());
+                this->push_damage = push_damage;
+            }
+
+            void schedule_instructions(
+                std::vector<wf::scene::render_instruction_t>& instructions,
+                const wf::render_target_t& target, wf::region_t& damage) override
+            {
+                instructions.push_back(wf::scene::render_instruction_t{
+                    .instance = this,
+                    .target   = target,
+                    .damage   = damage & self->get_bounding_box(),
+                });
+            }
+
+            void render(const wf::scene::render_instruction_t& data) override
+            {
+                self->grid->render(data);
+            }
+        };
+
+      public:
+        switcher_render_node_t(switcher_grid_output_t *grid) : node_t(false)
+        {
+            this->grid = grid;
+        }
+
+        virtual void gen_render_instances(
+            std::vector<wf::scene::render_instance_uptr>& instances,
+            wf::scene::damage_callback push_damage, wf::output_t *shown_on)
+        {
+            if (shown_on != this->grid->output)
+            {
+                return;
+            }
+
+            instances.push_back(std::make_unique<switcher_render_instance_t>(this, push_damage));
+        }
+
+        wf::geometry_t get_bounding_box()
+        {
+            return grid->output->get_layout_geometry();
+        }
+
+      private:
+        switcher_grid_output_t *grid;
+    };
+
+    std::shared_ptr<switcher_render_node_t> render_node;
+
+  public:
+    void init() override
+    {
+        if (!wf::get_core().is_gles2())
+        {
+            const char *render_type =
+                wf::get_core().is_vulkan() ? "vulkan" : (wf::get_core().is_pixman() ? "pixman" : "unknown");
+            LOGE("switcher-grid: requires GLES2 support, but current renderer is ", render_type);
+            return;
+        }
+
+        output->add_key(activate_key, &key_next, wf::binding_state_t::RELEASE);
+        output->add_key(activate_backward, &key_prev, wf::binding_state_t::RELEASE);
+        input_grab = std::make_unique<wf::input_grab_t>("switcher-grid", output, this, nullptr, nullptr);
+        grab_interface.cancel = [=] () { switcher_done(); };
+    }
+
+    void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
+    {
+        auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
+        
+        // Check if Alt is released
+        if ((event.state == WLR_KEY_RELEASED) && !(mod & WLR_MODIFIER_ALT))
+        {
+            switcher_done();
+        }
+    }
+
+    void calculate_grid_layout(int view_count)
+    {
+        auto og = output->get_relative_geometry();
+        
+        thumb_width = thumbnail_width;
+        grid_width_pct = grid_width_percent / 100.0f;
+        
+        float grid_width = og.width * grid_width_pct;
+        
+        // Calculate number of columns
+        grid_cols = std::max(1, (int)(grid_width / thumb_width));
+        
+        // Calculate number of rows
+        grid_rows = (view_count + grid_cols - 1) / grid_cols;
+        if (grid_rows < 1) grid_rows = 1;
+    }
+
+    wf::geometry_t calculate_thumbnail_geometry(int row, int col, const wf::geometry_t& view_bbox)
+    {
+        auto og = output->get_relative_geometry();
+        
+        float grid_width = og.width * grid_width_pct;
+        
+        // Calculate thumbnail height maintaining aspect ratio
+        float aspect_ratio = (float)view_bbox.width / view_bbox.height;
+        int thumb_height = thumb_width / aspect_ratio;
+        
+        // Calculate spacing
+        int h_spacing = (grid_width - (grid_cols * thumb_width)) / (grid_cols + 1);
+        int v_spacing = 30;
+        
+        // Calculate total grid height
+        int total_grid_height = grid_rows * thumb_height + (grid_rows + 1) * v_spacing;
+        
+        // Starting position (centered)
+        int start_x = (og.width - grid_width) / 2;
+        int start_y = (og.height - total_grid_height) / 2 + 50;
+        
+        wf::geometry_t geom;
+        geom.x = start_x + h_spacing + col * (thumb_width + h_spacing);
+        geom.y = start_y + v_spacing + row * (thumb_height + v_spacing);
+        geom.width = thumb_width;
+        geom.height = thumb_height;
+        
+        return geom;
+    }
+
+    void add_transformer(wayfire_toplevel_view view)
+    {
+        if (view->get_transformed_node()->get_transformer(SWITCHER_GRID_TRANSFORMER))
+        {
+            return;
+        }
+
+        auto tr = std::make_shared<wf::scene::view_2d_transformer_t>(view);
+        view->get_transformed_node()->add_transformer(tr, wf::TRANSFORMER_2D + 1,
+            SWITCHER_GRID_TRANSFORMER);
+        
+        view_data[view] = view_transform_data{};
+    }
+
+    void remove_transformer(wayfire_toplevel_view view)
+    {
+        if (!view) return;
+        
+        view->get_transformed_node()->rem_transformer(SWITCHER_GRID_TRANSFORMER);
+        view_data.erase(view);
+    }
+
+    void update_views()
+    {
+        views = output->wset()->get_views(
+            wf::WSET_CURRENT_WORKSPACE | wf::WSET_MAPPED_ONLY | wf::WSET_EXCLUDE_MINIMIZED);
+        
+        // Sort by focus timestamp (most recent first)
+        std::sort(views.begin(), views.end(), [] (wayfire_toplevel_view& a, wayfire_toplevel_view& b)
+        {
+            return get_focus_timestamp(a) > get_focus_timestamp(b);
+        });
+    }
+
+    void arrange_grid()
+    {
+        update_views();
+        
+        if (views.empty())
+        {
+            return;
+        }
+
+        calculate_grid_layout(views.size());
+
+        // Add transformers and calculate positions
+        for (size_t i = 0; i < views.size(); i++)
+        {
+            int row = i / grid_cols;
+            int col = i % grid_cols;
+            
+            add_transformer(views[i]);
+            
+            auto bbox = views[i]->get_geometry();
+            auto target_geom = calculate_thumbnail_geometry(row, col, bbox);
+            
+            view_data[views[i]].target_geometry = target_geom;
+            
+            // Calculate scale
+            float scale = (float)thumb_width / bbox.width;
+            view_data[views[i]].scale_x = scale;
+            view_data[views[i]].scale_y = scale;
+            
+            // Calculate offset to center
+            float center_x = (output->get_relative_geometry().width / 2.0) - (bbox.width / 2.0);
+            float center_y = (output->get_relative_geometry().height / 2.0) - (bbox.height / 2.0);
+            
+            view_data[views[i]].offset_x = target_geom.x - center_x;
+            view_data[views[i]].offset_y = target_geom.y - center_y;
+            
+            // Set alpha (highlight selected)
+            view_data[views[i]].alpha = (i == (size_t)selected_index) ? 1.0f : 0.6f;
+            
+            // Apply transform
+            apply_transform(views[i]);
+        }
+    }
+
+    void apply_transform(wayfire_toplevel_view view)
+    {
+        if (!view_data.count(view)) return;
+        
+        auto tr = view->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(
+            SWITCHER_GRID_TRANSFORMER);
+        if (!tr) return;
+        
+        auto& data = view_data[view];
+        
+        view->get_transformed_node()->begin_transform_update();
+        tr->translation_x = data.offset_x;
+        tr->translation_y = data.offset_y;
+        tr->scale_x = data.scale_x;
+        tr->scale_y = data.scale_y;
+        tr->alpha = data.alpha;
+        view->get_transformed_node()->end_transform_update();
+    }
+
+    void switcher_done()
+    {
+        if (!active) return;
+        
+        active = false;
+        input_grab->ungrab_input();
+        output->deactivate_plugin(&grab_interface);
+        
+        // Remove transformers and restore views
+        for (auto& view : views)
+        {
+            remove_transformer(view);
+        }
+        
+        views.clear();
+        view_data.clear();
+        selected_index = 0;
+        
+        // Focus selected view
+        if (!views.empty() && selected_index >= 0 && selected_index < (int)views.size())
+        {
+            wf::get_core().default_wm->focus_raise_view(views[selected_index]);
+        }
+        
+        if (render_node)
+        {
+            wf::scene::remove_child(render_node);
+            render_node = nullptr;
+        }
+    }
+
+    void switch_next()
+    {
+        if (!active)
+        {
+            if (!output->activate_plugin(&grab_interface))
+            {
+                return;
+            }
+            
+            active = true;
+            input_grab->grab_input(wf::scene::layer::OVERLAY);
+            selected_index = 0;
+            
+            render_node = std::make_shared<switcher_render_node_t>(this);
+            wf::scene::add_front(wf::get_core().scene(), render_node);
+            
+            arrange_grid();
+        } else
+        {
+            // Deselect current
+            if (selected_index >= 0 && selected_index < (int)views.size())
+            {
+                view_data[views[selected_index]].alpha = 0.6f;
+                apply_transform(views[selected_index]);
+            }
+            
+            // Select next
+            selected_index = (selected_index + 1) % views.size();
+            
+            // Highlight new selection
+            if (selected_index >= 0 && selected_index < (int)views.size())
+            {
+                view_data[views[selected_index]].alpha = 1.0f;
+                apply_transform(views[selected_index]);
+                wf::get_core().seat->focus_view(views[selected_index]);
+            }
+        }
+    }
+
+    void switch_prev()
+    {
+        if (!active)
+        {
+            switch_next();
+            return;
+        }
+        
+        // Deselect current
+        if (selected_index >= 0 && selected_index < (int)views.size())
+        {
+            view_data[views[selected_index]].alpha = 0.6f;
+            apply_transform(views[selected_index]);
+        }
+        
+        // Select previous
+        selected_index = (selected_index - 1 + views.size()) % views.size();
+        
+        // Highlight new selection
+        if (selected_index >= 0 && selected_index < (int)views.size())
+        {
+            view_data[views[selected_index]].alpha = 1.0f;
+            apply_transform(views[selected_index]);
+            wf::get_core().seat->focus_view(views[selected_index]);
+        }
+    }
+
+    void render_view(wayfire_view view, const wf::render_target_t& buffer)
+    {
+        std::vector<wf::scene::render_instance_uptr> instances;
+        view->get_transformed_node()->gen_render_instances(instances, [] (auto) {});
+        
+        wf::render_pass_params_t params;
+        params.instances = &instances;
+        params.damage = view->get_transformed_node()->get_bounding_box();
+        params.reference_output = this->output;
+        params.target = buffer;
+        wf::render_pass_t::run(params);
+    }
+
+    void render(const wf::scene::render_instruction_t& data)
+    {
+        // Render background (slightly dimmed)
+        auto background_views = wf::collect_views_from_output(output,
+            {wf::scene::layer::BACKGROUND, wf::scene::layer::BOTTOM});
+        
+        for (auto view : background_views)
+        {
+            render_view(view, data.target);
+        }
+        
+        // Render grid views
+        for (auto& view : views)
+        {
+            render_view(view, data.target);
+        }
+        
+        // Render overlay views
+        auto overlay_views = wf::collect_views_from_output(output,
+            {wf::scene::layer::TOP, wf::scene::layer::OVERLAY, wf::scene::layer::DWIDGET});
+        
+        for (auto view : overlay_views)
+        {
+            render_view(view, data.target);
+        }
+    }
+
+    void fini() override
+    {
+        if (active)
+        {
+            switcher_done();
+        }
+        
+        output->rem_binding(&key_next);
+        output->rem_binding(&key_prev);
+    }
+
+    wf::key_callback key_next = [=] (auto)
+    {
+        switch_next();
+        return false;
+    };
+
+    wf::key_callback key_prev = [=] (auto)
+    {
+        switch_prev();
+        return false;
+    };
+};
+
+class switcher_grid_global_t : public wf::plugin_interface_t,
+    public wf::per_output_tracker_mixin_t<switcher_grid_output_t>
+{
+  public:
+    void init() override
+    {
+        init_output_tracking();
+    }
+
+    void fini() override
+    {
+        fini_output_tracking();
+    }
+};
+
+DECLARE_WAYFIRE_PLUGIN(switcher_grid_global_t);

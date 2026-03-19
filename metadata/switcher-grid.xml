@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<wayfire>
+	<plugin name="switcher-grid">
+		<_short>Switcher Grid</_short>
+		<_long>A plugin that shows a grid of window thumbnails when switching windows with Alt+Tab.</_long>
+		<category>Window Management</category>
+		<option name="activate" type="key">
+			<_short>Next window</_short>
+			<_long>Switch to the next window in the grid.</_long>
+			<default>&lt;alt&gt; KEY_TAB</default>
+		</option>
+		<option name="activate_backward" type="key">
+			<_short>Previous window</_short>
+			<_long>Switch to the previous window in the grid.</_long>
+			<default>&lt;alt&gt; &lt;shift&gt; KEY_TAB</default>
+		</option>
+		<option name="thumbnail_width" type="int">
+			<_short>Thumbnail Width</_short>
+			<_long>Width of each thumbnail in pixels. Height is calculated automatically.</_long>
+			<default>500</default>
+			<min>100</min>
+			<max>2000</max>
+		</option>
+		<option name="grid_width_percent" type="int">
+			<_short>Grid Width</_short>
+			<_long>Width of the grid as percentage of screen width.</_long>
+			<default>90</default>
+			<min>50</min>
+			<max>100</max>
+		</option>
+		<option name="animation_duration" type="animation">
+			<_short>Animation Duration</_short>
+			<_long>Duration of the grid animation in milliseconds.</_long>
+			<default>200ms</default>
+			<min>0</min>
+		</option>
+	</plugin>
+</wayfire>
