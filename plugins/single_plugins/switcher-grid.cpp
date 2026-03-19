@@ -13,13 +13,17 @@
 #include <wayfire/window-manager.hpp>
 #include <wayfire/plugins/common/input-grab.hpp>
 #include <wayfire/plugins/common/util.hpp>
+#include <wayfire/plugins/common/cairo-util.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cairo/cairo.h>
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 constexpr const char *SWITCHER_GRID_TRANSFORMER = "switcher-grid";
 
-class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public wf::keyboard_interaction_t
+class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
+    public wf::keyboard_interaction_t, public wf::pointer_interaction_t
 {
     // Configuration
     wf::option_wrapper_t<wf::keybinding_t> activate_key{"switcher-grid/activate"};
@@ -27,15 +31,15 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
     wf::option_wrapper_t<int> thumbnail_width{"switcher-grid/thumbnail_width"};
     wf::option_wrapper_t<int> grid_width_percent{"switcher-grid/grid_width_percent"};
     wf::option_wrapper_t<wf::animation_description_t> animation_duration{"switcher-grid/animation_duration"};
+    wf::option_wrapper_t<bool> show_titles{"switcher-grid/show_titles"};
+    wf::option_wrapper_t<std::string> highlight_color{"switcher-grid/highlight_color"};
+    wf::option_wrapper_t<int> border_width{"switcher-grid/border_width"};
 
     // State
     bool active = false;
     int selected_index = 0;
     std::vector<wayfire_toplevel_view> views;
     std::unique_ptr<wf::input_grab_t> input_grab;
-
-    // Animation
-    wf::animation::simple_animation_t fade_animation{animation_duration};
 
     // Grid layout
     int grid_cols = 0;
@@ -60,6 +64,9 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
     };
 
     std::map<wayfire_toplevel_view, view_transform_data> view_data;
+    
+    // Title textures
+    std::map<wayfire_toplevel_view, cairo_surface_t*> title_surfaces;
 
     class switcher_render_node_t : public wf::scene::node_t
     {
@@ -134,18 +141,72 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
 
         output->add_key(activate_key, &key_next, wf::binding_state_t::RELEASE);
         output->add_key(activate_backward, &key_prev, wf::binding_state_t::RELEASE);
-        input_grab = std::make_unique<wf::input_grab_t>("switcher-grid", output, this, nullptr, nullptr);
+        input_grab = std::make_unique<wf::input_grab_t>("switcher-grid", output, this, this, nullptr);
         grab_interface.cancel = [=] () { switcher_done(); };
     }
 
     void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
     {
+        if (!active) return;
+        
         auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
         
         // Check if Alt is released
         if ((event.state == WLR_KEY_RELEASED) && !(mod & WLR_MODIFIER_ALT))
         {
             switcher_done();
+            return;
+        }
+        
+        // Handle arrow keys for navigation
+        if (event.state != WLR_KEY_PRESSED) return;
+        
+        uint32_t keycode = event.keycode;
+        // Key codes: 105=Left, 106=Right, 103=Up, 108=Down
+        if (keycode == 105 || keycode == 106) // Left/Right
+        {
+            if (keycode == 106) // Right
+            {
+                select_next();
+            } else // Left
+            {
+                select_prev();
+            }
+        } else if (keycode == 103 || keycode == 108) // Up/Down
+        {
+            if (keycode == 108) // Down
+            {
+                selected_index = (selected_index + grid_cols) % views.size();
+            } else // Up
+            {
+                selected_index = (selected_index - grid_cols + views.size()) % views.size();
+            }
+            update_selection();
+        }
+    }
+
+    void handle_pointer_button(const wlr_pointer_button_event& ev) override
+    {
+        if (!active || ev.state != (wlr_button_state)WLR_BUTTON_RELEASED) return;
+        
+        auto gc = wf::get_core().get_cursor_position();
+        auto og = output->get_layout_geometry();
+        gc.x -= og.x;
+        gc.y -= og.y;
+        
+        // Find which thumbnail was clicked
+        for (size_t i = 0; i < views.size(); i++)
+        {
+            if (!view_data.count(views[i])) continue;
+            
+            auto& geom = view_data[views[i]].target_geometry;
+            if (gc.x >= geom.x && gc.x <= geom.x + geom.width &&
+                gc.y >= geom.y && gc.y <= geom.y + geom.height)
+            {
+                selected_index = i;
+                switcher_done();
+                return;
+            }
         }
     }
 
@@ -176,6 +237,12 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         float aspect_ratio = (float)view_bbox.width / view_bbox.height;
         int thumb_height = thumb_width / aspect_ratio;
         
+        // Add space for title if enabled
+        if (show_titles)
+        {
+            thumb_height += 40;
+        }
+        
         // Calculate spacing
         int h_spacing = (grid_width - (grid_cols * thumb_width)) / (grid_cols + 1);
         int v_spacing = 30;
@@ -191,9 +258,50 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         geom.x = start_x + h_spacing + col * (thumb_width + h_spacing);
         geom.y = start_y + v_spacing + row * (thumb_height + v_spacing);
         geom.width = thumb_width;
-        geom.height = thumb_height;
+        geom.height = thumb_height - (show_titles ? 40 : 0);
         
         return geom;
+    }
+
+    cairo_surface_t* create_title_surface(wayfire_toplevel_view view)
+    {
+        if (!show_titles) return nullptr;
+        
+        std::string title = view->get_title();
+        if (title.empty()) title = "Untitled";
+        
+        // Truncate long titles
+        if (title.length() > 50)
+        {
+            title = title.substr(0, 47) + "...";
+        }
+        
+        int width = thumb_width;
+        int height = 40;
+        
+        cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+        cairo_t *cr = cairo_create(surface);
+        
+        // Clear background
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.8);
+        cairo_paint(cr);
+        
+        // Draw text
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, 14);
+        cairo_set_source_rgba(cr, 1, 1, 1, 1);
+        
+        cairo_text_extents_t extents;
+        cairo_text_extents(cr, title.c_str(), &extents);
+        
+        double x = (width - extents.width) / 2 - extents.x_bearing;
+        double y = (height - extents.height) / 2 - extents.y_bearing + extents.height;
+        
+        cairo_move_to(cr, x, y);
+        cairo_show_text(cr, title.c_str());
+        
+        cairo_destroy(cr);
+        return surface;
     }
 
     void add_transformer(wayfire_toplevel_view view)
@@ -208,6 +316,12 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
             SWITCHER_GRID_TRANSFORMER);
         
         view_data[view] = view_transform_data{};
+        
+        // Create title surface
+        if (show_titles)
+        {
+            title_surfaces[view] = create_title_surface(view);
+        }
     }
 
     void remove_transformer(wayfire_toplevel_view view)
@@ -216,6 +330,12 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         
         view->get_transformed_node()->rem_transformer(SWITCHER_GRID_TRANSFORMER);
         view_data.erase(view);
+        
+        if (title_surfaces.count(view))
+        {
+            cairo_surface_destroy(title_surfaces[view]);
+            title_surfaces.erase(view);
+        }
     }
 
     void update_views()
@@ -293,6 +413,40 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         view->get_transformed_node()->end_transform_update();
     }
 
+    void select_next()
+    {
+        if (selected_index >= 0 && selected_index < (int)views.size())
+        {
+            view_data[views[selected_index]].alpha = 0.6f;
+            apply_transform(views[selected_index]);
+        }
+        
+        selected_index = (selected_index + 1) % views.size();
+        update_selection();
+    }
+
+    void select_prev()
+    {
+        if (selected_index >= 0 && selected_index < (int)views.size())
+        {
+            view_data[views[selected_index]].alpha = 0.6f;
+            apply_transform(views[selected_index]);
+        }
+        
+        selected_index = (selected_index - 1 + views.size()) % views.size();
+        update_selection();
+    }
+
+    void update_selection()
+    {
+        if (selected_index >= 0 && selected_index < (int)views.size())
+        {
+            view_data[views[selected_index]].alpha = 1.0f;
+            apply_transform(views[selected_index]);
+            wf::get_core().seat->focus_view(views[selected_index]);
+        }
+    }
+
     void switcher_done()
     {
         if (!active) return;
@@ -343,23 +497,7 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
             arrange_grid();
         } else
         {
-            // Deselect current
-            if (selected_index >= 0 && selected_index < (int)views.size())
-            {
-                view_data[views[selected_index]].alpha = 0.6f;
-                apply_transform(views[selected_index]);
-            }
-            
-            // Select next
-            selected_index = (selected_index + 1) % views.size();
-            
-            // Highlight new selection
-            if (selected_index >= 0 && selected_index < (int)views.size())
-            {
-                view_data[views[selected_index]].alpha = 1.0f;
-                apply_transform(views[selected_index]);
-                wf::get_core().seat->focus_view(views[selected_index]);
-            }
+            select_next();
         }
     }
 
@@ -371,23 +509,7 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
             return;
         }
         
-        // Deselect current
-        if (selected_index >= 0 && selected_index < (int)views.size())
-        {
-            view_data[views[selected_index]].alpha = 0.6f;
-            apply_transform(views[selected_index]);
-        }
-        
-        // Select previous
-        selected_index = (selected_index - 1 + views.size()) % views.size();
-        
-        // Highlight new selection
-        if (selected_index >= 0 && selected_index < (int)views.size())
-        {
-            view_data[views[selected_index]].alpha = 1.0f;
-            apply_transform(views[selected_index]);
-            wf::get_core().seat->focus_view(views[selected_index]);
-        }
+        select_prev();
     }
 
     void render_view(wayfire_view view, const wf::render_target_t& buffer)
@@ -418,6 +540,18 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         for (auto& view : views)
         {
             render_view(view, data.target);
+            
+            // Render highlight border for selected view
+            if (view_data.count(view) && view_data[view].alpha > 0.9f)
+            {
+                render_highlight_border(view, data.target);
+            }
+            
+            // Render title
+            if (show_titles && title_surfaces.count(view))
+            {
+                render_title(view, data.target);
+            }
         }
         
         // Render overlay views
@@ -428,6 +562,27 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t, public w
         {
             render_view(view, data.target);
         }
+    }
+
+    void render_highlight_border(wayfire_toplevel_view view, const wf::render_target_t& buffer)
+    {
+        if (!view_data.count(view)) return;
+        
+        // Parse highlight color (format: "r g b a")
+        float r = 0.4f, g = 0.6f, b = 1.0f, a = 1.0f;
+        std::string color_str = highlight_color;
+        sscanf(color_str.c_str(), "%f %f %f %f", &r, &g, &b, &a);
+        
+        // Border rendering would use OpenGL here
+        // Implementation left for future enhancement
+    }
+
+    void render_title(wayfire_toplevel_view view, const wf::render_target_t& buffer)
+    {
+        if (!title_surfaces.count(view) || !view_data.count(view)) return;
+        
+        // Title rendering would use OpenGL texture upload here
+        // Implementation left for future enhancement
     }
 
     void fini() override
