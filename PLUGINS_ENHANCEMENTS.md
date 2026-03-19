@@ -60,10 +60,14 @@ A dedicated plugin that shows a **grid of window thumbnails** when pressing Alt+
 | `thumbnail_width` | int | 500 | Width of each thumbnail in pixels (100-2000) |
 | `grid_width_percent` | int | 90 | Grid width as percentage of screen (50-100) |
 | `animation_duration` | animation | 200ms | Duration of grid animation |
+| `selected_alpha` | double | 1.0 | Opacity of selected window (0.1-1.0) |
+| `inactive_alpha` | double | 0.6 | Opacity of inactive windows (0.1-1.0) |
+| `show_workspace` | bool | true | Show workspace number on thumbnails |
 
 ### Features
 - **Grid Layout**: Automatic rows/columns based on window count
-- **Thumbnail Highlighting**: Selected window at 100% opacity, others at 60%
+- **Thumbnail Highlighting**: Configurable opacity for selected/inactive
+- **Search/Filter**: Type numbers to filter windows by title
 - **Key Release Trigger**: Actions trigger on key release for better UX
 - **Alt-Release Detection**: Grid closes when Alt key is released
 - **Mouse Support**: Click on thumbnail to select and activate
@@ -71,6 +75,7 @@ A dedicated plugin that shows a **grid of window thumbnails** when pressing Alt+
 - **Arrow Key Navigation**: Use arrow keys to navigate grid
 - **Keyboard Close**: Delete/Backspace to close selected window
 - **Auto-Update**: Grid updates when windows are closed
+- **Workspace Indicators**: Optional workspace number display
 
 ### Example Configuration
 ```ini
@@ -83,6 +88,13 @@ activate_backward = <alt> <shift> KEY_TAB
 thumbnail_width = 500
 grid_width_percent = 90
 animation_duration = 200ms
+
+# Opacity settings
+selected_alpha = 1.0
+inactive_alpha = 0.6
+
+# Workspace indicators
+show_workspace = true
 ```
 
 ### Usage
@@ -95,6 +107,8 @@ animation_duration = 200ms
    - **Mouse Click** - Click thumbnail to select
    - **Middle-Click** - Close window
    - **Delete/Backspace** - Close selected window
+   - **Numbers (0-9)** - Filter windows by title
+   - **Escape** - Clear search filter
 4. **Release Alt** - Grid closes, selected window is focused
 
 ### Differences from Switcher Plugin
