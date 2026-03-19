@@ -2,7 +2,7 @@
 <wayfire>
 	<plugin name="switcher-grid">
 		<_short>Switcher Grid</_short>
-		<_long>A plugin that shows a grid of window thumbnails when switching windows with Alt+Tab, with titles and highlighting.</_long>
+		<_long>A plugin that shows a grid of window thumbnails when switching windows with Alt+Tab.</_long>
 		<category>Window Management</category>
 		<option name="activate" type="key">
 			<_short>Next window</_short>
@@ -33,23 +33,6 @@
 			<_long>Duration of the grid animation in milliseconds.</_long>
 			<default>200ms</default>
 			<min>0</min>
-		</option>
-		<option name="show_titles" type="bool">
-			<_short>Show Window Titles</_short>
-			<_long>Display window titles below each thumbnail.</_long>
-			<default>true</default>
-		</option>
-		<option name="highlight_color" type="string">
-			<_short>Highlight Color</_short>
-			<_long>Color of the highlight border around selected thumbnail (format: "r g b a").</_long>
-			<default>0.4 0.6 1.0 1.0</default>
-		</option>
-		<option name="border_width" type="int">
-			<_short>Border Width</_short>
-			<_long>Width of the highlight border in pixels.</_long>
-			<default>4</default>
-			<min>1</min>
-			<max>20</max>
 		</option>
 	</plugin>
 </wayfire>
