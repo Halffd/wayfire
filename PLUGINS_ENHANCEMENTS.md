@@ -9,6 +9,8 @@ This document describes the enhancements made to Wayfire plugins, including new 
 3. [Zoom Plugin](#zoom-plugin)
 4. [WM-Actions Plugin](#wm-actions-plugin)
 5. [Display Plugin](#display-plugin)
+6. [Fast Switcher Plugin](#fast-switcher-plugin)
+7. [Key Release/Repeat API](#key-releaserepeat-api)
 
 ---
 
@@ -785,6 +787,111 @@ wayfire-ipc --method zoom/setZoom --data '{"factor": 1.0}'
 - Uses Tanner Helland's algorithm for color temperature calculation
 - All adjustments are GPU-accelerated for minimal performance impact
 - Smooth animations prevent jarring transitions
+
+---
+
+## Fast Switcher Plugin
+
+### Quick Switch Feature
+The fast-switcher plugin includes a **quick switch** feature that toggles between the last two focused windows.
+
+**Default Bindings:**
+- `Alt+Tab` - Quick switch between last 2 windows
+- **`Menu`** (KEY_CONTEXT_MENU) - Quick switch between last 2 windows
+
+**Configuration:**
+```ini
+[fast-switcher]
+# Quick toggle between last 2 windows
+quick_switch = <alt> KEY_TAB, KEY_CONTEXT_MENU
+
+# Traditional cycle through all windows
+activate = <alt> KEY_ESC
+activate_backward = <alt> <shift> KEY_ESC
+
+# Inactive window opacity
+inactive_alpha = 0.70
+```
+
+**Usage:**
+- Press **Menu key** or **Alt+Tab** to instantly switch to the previous window
+- Press again to switch back
+- Perfect for quickly toggling between two applications
+
+---
+
+## Key Release/Repeat API
+
+### Overview
+Wayfire now supports binding actions to different key event states: **PRESS**, **RELEASE**, and **REPEAT**. This enables more responsive and natural user interactions.
+
+### API Usage
+
+#### Binding to Key Release
+```cpp
+// Bind action to key release event
+output->add_key(my_key, &my_callback, wf::binding_state_t::RELEASE);
+```
+
+#### Binding to Key Press (Default)
+```cpp
+// Bind action to key press event (default behavior)
+output->add_key(my_key, &my_callback, wf::binding_state_t::PRESS);
+
+// Or use the original API (defaults to PRESS)
+output->add_key(my_key, &my_callback);
+```
+
+#### Binding to Key Repeat
+```cpp
+// Bind action to key repeat event (when key is held)
+output->add_key(my_key, &my_callback, wf::binding_state_t::REPEAT);
+```
+
+### Available Binding States
+
+| State | Description | Use Case |
+|-------|-------------|----------|
+| `PRESS` | Key was pressed down | Default, immediate actions |
+| `RELEASE` | Key was released | Toggle actions, zoom controls |
+| `REPEAT` | Key is being held and repeating | Continuous actions |
+
+### Benefits
+
+✅ **More Natural Feel** - Actions complete when you release the key
+✅ **Reduces Accidental Triggers** - Brief key taps don't trigger actions
+✅ **Better UX** - Matches user expectations for toggle-like actions
+✅ **Prevents Stutter** - No repeated triggering when holding keys
+
+### Example: Zoom Plugin
+
+The zoom plugin uses key release for a more responsive experience:
+
+```ini
+[zoom]
+# These trigger on key RELEASE
+zoom_in = <ctrl> KEY_UP
+zoom_out = <ctrl> KEY_DOWN
+
+# This triggers on key PRESS (instant)
+zoom_reset = <ctrl> KEY_SLASH
+```
+
+```cpp
+// In zoom.cpp initialization
+output->add_key(zoom_in_key, &zoom_in_binding, wf::binding_state_t::RELEASE);
+output->add_key(zoom_out_key, &zoom_out_binding, wf::binding_state_t::RELEASE);
+output->add_key(zoom_reset_key, &zoom_reset_binding); // Defaults to PRESS
+```
+
+### Implementation Details
+
+The API maintains separate binding containers for each state:
+- `keys_press` - Bindings triggered on key press
+- `keys_release` - Bindings triggered on key release
+- `keys_repeat` - Bindings triggered on key repeat
+
+This ensures efficient lookup and execution without performance overhead.
 
 ---
 
