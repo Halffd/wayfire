@@ -37,8 +37,9 @@ class wayfire_zoom_screen : public wf::per_output_plugin_instance_t
     {
         progression.set(1, 1);
         output->add_axis(modifier, &axis);
-        output->add_key(zoom_in_key, &zoom_in_binding);
-        output->add_key(zoom_out_key, &zoom_out_binding);
+        // Use key release events for more responsive feel
+        output->add_key(zoom_in_key, &zoom_in_binding, wf::binding_state_t::RELEASE);
+        output->add_key(zoom_out_key, &zoom_out_binding, wf::binding_state_t::RELEASE);
         output->add_key(zoom_reset_key, &zoom_reset_binding);
 
         // Register IPC methods
