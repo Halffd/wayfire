@@ -30,11 +30,16 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
     wf::option_wrapper_t<int> thumbnail_width{"switcher-grid/thumbnail_width"};
     wf::option_wrapper_t<int> grid_width_percent{"switcher-grid/grid_width_percent"};
     wf::option_wrapper_t<wf::animation_description_t> animation_duration{"switcher-grid/animation_duration"};
+    wf::option_wrapper_t<double> selected_alpha{"switcher-grid/selected_alpha"};
+    wf::option_wrapper_t<double> inactive_alpha{"switcher-grid/inactive_alpha"};
+    wf::option_wrapper_t<bool> show_workspace{"switcher-grid/show_workspace"};
 
     // State
     bool active = false;
     int selected_index = 0;
     std::vector<wayfire_toplevel_view> views;
+    std::vector<wayfire_toplevel_view> filtered_views; // For search/filter
+    std::string search_query;
     std::unique_ptr<wf::input_grab_t> input_grab;
 
     // Grid layout
@@ -138,66 +143,6 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
         grab_interface.cancel = [=] () { switcher_done(); };
     }
 
-    void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
-    {
-        if (!active) return;
-        
-        auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
-        
-        // Check if Alt is released
-        if ((event.state == WLR_KEY_RELEASED) && !(mod & WLR_MODIFIER_ALT))
-        {
-            switcher_done();
-            return;
-        }
-        
-        // Handle key presses
-        if (event.state != WLR_KEY_PRESSED) return;
-        
-        uint32_t keycode = event.keycode;
-        
-        // Delete/Backspace closes selected window
-        if (keycode == 119 || keycode == 22) // KEY_DELETE or KEY_BACKSPACE
-        {
-            if (selected_index >= 0 && selected_index < (int)views.size())
-            {
-                views[selected_index]->close();
-                views.erase(views.begin() + selected_index);
-                if (views.empty())
-                {
-                    switcher_done();
-                } else
-                {
-                    selected_index = std::min(selected_index, (int)views.size() - 1);
-                    arrange_grid();
-                }
-            }
-            return;
-        }
-        
-        // Key codes: 105=Left, 106=Right, 103=Up, 108=Down
-        if (keycode == 105 || keycode == 106) // Left/Right
-        {
-            if (keycode == 106) // Right
-            {
-                select_next();
-            } else // Left
-            {
-                select_prev();
-            }
-        } else if (keycode == 103 || keycode == 108) // Up/Down
-        {
-            if (keycode == 108) // Down
-            {
-                selected_index = (selected_index + grid_cols) % views.size();
-            } else // Up
-            {
-                selected_index = (selected_index - grid_cols + views.size()) % views.size();
-            }
-            update_selection();
-        }
-    }
-
     void handle_pointer_button(const wlr_pointer_button_event& ev) override
     {
         if (!active || ev.state != (wlr_button_state)WLR_BUTTON_RELEASED) return;
@@ -208,26 +153,26 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
         gc.y -= og.y;
         
         // Find which thumbnail was clicked
-        for (size_t i = 0; i < views.size(); i++)
+        for (size_t i = 0; i < filtered_views.size(); i++)
         {
-            if (!view_data.count(views[i])) continue;
+            if (!view_data.count(filtered_views[i])) continue;
             
-            auto& geom = view_data[views[i]].target_geometry;
+            auto& geom = view_data[filtered_views[i]].target_geometry;
             if (gc.x >= geom.x && gc.x <= geom.x + geom.width &&
                 gc.y >= geom.y && gc.y <= geom.y + geom.height)
             {
                 // Middle click closes window
                 if (ev.button == BTN_MIDDLE)
                 {
-                    views[i]->close();
-                    // Remove from views and recalculate
-                    views.erase(views.begin() + i);
-                    if (views.empty())
+                    filtered_views[i]->close();
+                    // Remove from filtered views and recalculate
+                    filtered_views.erase(filtered_views.begin() + i);
+                    if (filtered_views.empty())
                     {
                         switcher_done();
                     } else
                     {
-                        selected_index = std::min(selected_index, (int)views.size() - 1);
+                        selected_index = std::min(selected_index, (int)filtered_views.size() - 1);
                         arrange_grid();
                     }
                     return;
@@ -320,49 +265,186 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
         {
             return get_focus_timestamp(a) > get_focus_timestamp(b);
         });
+        
+        // Apply search filter
+        apply_filter();
+    }
+
+    void apply_filter()
+    {
+        filtered_views.clear();
+        
+        if (search_query.empty())
+        {
+            filtered_views = views;
+            return;
+        }
+        
+        // Filter by title match
+        std::string query_lower = search_query;
+        std::transform(query_lower.begin(), query_lower.end(), query_lower.begin(), ::tolower);
+        
+        for (auto& view : views)
+        {
+            std::string title = view->get_title();
+            std::transform(title.begin(), title.end(), title.begin(), ::tolower);
+            
+            if (title.find(query_lower) != std::string::npos)
+            {
+                filtered_views.push_back(view);
+            }
+        }
+        
+        // Adjust selection if needed
+        if (selected_index >= (int)filtered_views.size())
+        {
+            selected_index = std::max(0, (int)filtered_views.size() - 1);
+        }
+    }
+
+    void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
+    {
+        if (!active) return;
+        
+        auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
+        
+        // Check if Alt is released
+        if ((event.state == WLR_KEY_RELEASED) && !(mod & WLR_MODIFIER_ALT))
+        {
+            switcher_done();
+            return;
+        }
+        
+        // Handle key presses
+        if (event.state != WLR_KEY_PRESSED) return;
+        
+        uint32_t keycode = event.keycode;
+        
+        // Handle text input for search (letters and numbers)
+        if (keycode >= 2 && keycode <= 11) // Numbers 0-9
+        {
+            // Get the character from keycode (simplified)
+            search_query += (char)('0' + (keycode - 2));
+            apply_filter();
+            return;
+        }
+        
+        // Backspace removes from search query
+        if (keycode == 22) // KEY_BACKSPACE
+        {
+            if (!search_query.empty())
+            {
+                search_query.pop_back();
+                apply_filter();
+            } else if (selected_index >= 0 && selected_index < (int)filtered_views.size())
+            {
+                // Close selected window if no search query
+                filtered_views[selected_index]->close();
+                filtered_views.erase(filtered_views.begin() + selected_index);
+                if (filtered_views.empty())
+                {
+                    switcher_done();
+                } else
+                {
+                    selected_index = std::min(selected_index, (int)filtered_views.size() - 1);
+                    arrange_grid();
+                }
+            }
+            return;
+        }
+        
+        // Escape clears search
+        if (keycode == 1) // KEY_ESC
+        {
+            search_query.clear();
+            apply_filter();
+            return;
+        }
+        
+        // Delete closes selected window
+        if (keycode == 119) // KEY_DELETE
+        {
+            if (selected_index >= 0 && selected_index < (int)filtered_views.size())
+            {
+                filtered_views[selected_index]->close();
+                filtered_views.erase(filtered_views.begin() + selected_index);
+                if (filtered_views.empty())
+                {
+                    switcher_done();
+                } else
+                {
+                    selected_index = std::min(selected_index, (int)filtered_views.size() - 1);
+                    arrange_grid();
+                }
+            }
+            return;
+        }
+        
+        // Arrow keys for navigation
+        if (keycode == 105 || keycode == 106) // Left/Right
+        {
+            if (keycode == 106) // Right
+            {
+                select_next();
+            } else // Left
+            {
+                select_prev();
+            }
+        } else if (keycode == 103 || keycode == 108) // Up/Down
+        {
+            if (keycode == 108) // Down
+            {
+                selected_index = (selected_index + grid_cols) % filtered_views.size();
+            } else // Up
+            {
+                selected_index = (selected_index - grid_cols + filtered_views.size()) % filtered_views.size();
+            }
+            update_selection();
+        }
     }
 
     void arrange_grid()
     {
         update_views();
         
-        if (views.empty())
+        if (filtered_views.empty())
         {
             return;
         }
 
-        calculate_grid_layout(views.size());
+        calculate_grid_layout(filtered_views.size());
 
         // Add transformers and calculate positions
-        for (size_t i = 0; i < views.size(); i++)
+        for (size_t i = 0; i < filtered_views.size(); i++)
         {
             int row = i / grid_cols;
             int col = i % grid_cols;
             
-            add_transformer(views[i]);
+            add_transformer(filtered_views[i]);
             
-            auto bbox = views[i]->get_geometry();
+            auto bbox = filtered_views[i]->get_geometry();
             auto target_geom = calculate_thumbnail_geometry(row, col, bbox);
             
-            view_data[views[i]].target_geometry = target_geom;
+            view_data[filtered_views[i]].target_geometry = target_geom;
             
             // Calculate scale
             float scale = (float)thumb_width / bbox.width;
-            view_data[views[i]].scale_x = scale;
-            view_data[views[i]].scale_y = scale;
+            view_data[filtered_views[i]].scale_x = scale;
+            view_data[filtered_views[i]].scale_y = scale;
             
             // Calculate offset to center
             float center_x = (output->get_relative_geometry().width / 2.0) - (bbox.width / 2.0);
             float center_y = (output->get_relative_geometry().height / 2.0) - (bbox.height / 2.0);
             
-            view_data[views[i]].offset_x = target_geom.x - center_x;
-            view_data[views[i]].offset_y = target_geom.y - center_y;
+            view_data[filtered_views[i]].offset_x = target_geom.x - center_x;
+            view_data[filtered_views[i]].offset_y = target_geom.y - center_y;
             
             // Set alpha (highlight selected)
-            view_data[views[i]].alpha = (i == (size_t)selected_index) ? 1.0f : 0.6f;
+            float alpha = (i == (size_t)selected_index) ? selected_alpha : inactive_alpha;
+            view_data[filtered_views[i]].alpha = alpha;
             
             // Apply transform
-            apply_transform(views[i]);
+            apply_transform(filtered_views[i]);
         }
     }
 
@@ -387,35 +469,35 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
 
     void select_next()
     {
-        if (selected_index >= 0 && selected_index < (int)views.size())
+        if (selected_index >= 0 && selected_index < (int)filtered_views.size())
         {
-            view_data[views[selected_index]].alpha = 0.6f;
-            apply_transform(views[selected_index]);
+            view_data[filtered_views[selected_index]].alpha = inactive_alpha;
+            apply_transform(filtered_views[selected_index]);
         }
         
-        selected_index = (selected_index + 1) % views.size();
+        selected_index = (selected_index + 1) % filtered_views.size();
         update_selection();
     }
 
     void select_prev()
     {
-        if (selected_index >= 0 && selected_index < (int)views.size())
+        if (selected_index >= 0 && selected_index < (int)filtered_views.size())
         {
-            view_data[views[selected_index]].alpha = 0.6f;
-            apply_transform(views[selected_index]);
+            view_data[filtered_views[selected_index]].alpha = inactive_alpha;
+            apply_transform(filtered_views[selected_index]);
         }
         
-        selected_index = (selected_index - 1 + views.size()) % views.size();
+        selected_index = (selected_index - 1 + filtered_views.size()) % filtered_views.size();
         update_selection();
     }
 
     void update_selection()
     {
-        if (selected_index >= 0 && selected_index < (int)views.size())
+        if (selected_index >= 0 && selected_index < (int)filtered_views.size())
         {
-            view_data[views[selected_index]].alpha = 1.0f;
-            apply_transform(views[selected_index]);
-            wf::get_core().seat->focus_view(views[selected_index]);
+            view_data[filtered_views[selected_index]].alpha = selected_alpha;
+            apply_transform(filtered_views[selected_index]);
+            wf::get_core().seat->focus_view(filtered_views[selected_index]);
         }
     }
 
@@ -428,19 +510,21 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
         output->deactivate_plugin(&grab_interface);
         
         // Remove transformers and restore views
-        for (auto& view : views)
+        for (auto& view : filtered_views)
         {
             remove_transformer(view);
         }
         
         views.clear();
+        filtered_views.clear();
         view_data.clear();
         selected_index = 0;
+        search_query.clear();
         
         // Focus selected view
-        if (!views.empty() && selected_index >= 0 && selected_index < (int)views.size())
+        if (!filtered_views.empty() && selected_index >= 0 && selected_index < (int)filtered_views.size())
         {
-            wf::get_core().default_wm->focus_raise_view(views[selected_index]);
+            wf::get_core().default_wm->focus_raise_view(filtered_views[selected_index]);
         }
         
         if (render_node)
@@ -502,14 +586,14 @@ class switcher_grid_output_t : public wf::per_output_plugin_instance_t,
         // Render background (slightly dimmed)
         auto background_views = wf::collect_views_from_output(output,
             {wf::scene::layer::BACKGROUND, wf::scene::layer::BOTTOM});
-
+        
         for (auto view : background_views)
         {
             render_view(view, data.target);
         }
 
         // Render grid views
-        for (auto& view : views)
+        for (auto& view : filtered_views)
         {
             render_view(view, data.target);
         }

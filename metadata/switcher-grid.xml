@@ -2,7 +2,7 @@
 <wayfire>
 	<plugin name="switcher-grid">
 		<_short>Switcher Grid</_short>
-		<_long>A plugin that shows a grid of window thumbnails when switching windows with Alt+Tab.</_long>
+		<_long>A plugin that shows a grid of window thumbnails when switching windows with Alt+Tab, with search and workspace indicators.</_long>
 		<category>Window Management</category>
 		<option name="activate" type="key">
 			<_short>Next window</_short>
@@ -33,6 +33,25 @@
 			<_long>Duration of the grid animation in milliseconds.</_long>
 			<default>200ms</default>
 			<min>0</min>
+		</option>
+		<option name="selected_alpha" type="double">
+			<_short>Selected Alpha</_short>
+			<_long>Opacity of the selected window thumbnail.</_long>
+			<default>1.0</default>
+			<min>0.1</min>
+			<max>1.0</max>
+		</option>
+		<option name="inactive_alpha" type="double">
+			<_short>Inactive Alpha</_short>
+			<_long>Opacity of inactive window thumbnails.</_long>
+			<default>0.6</default>
+			<min>0.1</min>
+			<max>1.0</max>
+		</option>
+		<option name="show_workspace" type="bool">
+			<_short>Show Workspace</_short>
+			<_long>Show workspace number on each thumbnail.</_long>
+			<default>true</default>
 		</option>
 	</plugin>
 </wayfire>
