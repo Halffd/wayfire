@@ -48,6 +48,8 @@ extern "C"
 #undef static
 #include <wlr/types/wlr_buffer.h>
 #include <wlr/types/wlr_viewporter.h>
+#include <wlr/types/wlr_color_management_v1.h>
+#include <wlr/types/wlr_color_representation_v1.h>
 
 #include <wlr/types/wlr_damage_ring.h>
 #include <wlr/types/wlr_presentation_time.h>
@@ -123,7 +125,6 @@ extern "C"
     #include <wlr/types/wlr_output_power_management_v1.h>
 #endif
 #include <wlr/types/wlr_gamma_control_v1.h>
-#include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_drm_lease_v1.h>
 
 // Input
@@ -159,6 +160,7 @@ extern "C"
 #include <wlr/types/wlr_primary_selection_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_single_pixel_buffer_v1.h>
+#include <wlr/types/wlr_color_representation_v1.h>
 #include <wlr/types/wlr_session_lock_v1.h>
 #include <wlr/types/wlr_security_context_v1.h>
 #if  __has_include(<cursor-shape-v1-protocol.h>)

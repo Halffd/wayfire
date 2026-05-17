@@ -99,9 +99,9 @@ static std::map<std::string, wl_output_transform> output_transforms = {
     {"270_flipped", WL_OUTPUT_TRANSFORM_FLIPPED_270},
 };
 
-static wl_output_transform get_transform_from_string(std::string transform)
+wl_output_transform wf::layout_detail::get_transform_from_string(std::string_view transform)
 {
-    auto it = output_transforms.find(transform);
+    auto it = output_transforms.find(std::string{transform});
     if (it != output_transforms.end())
     {
         return it->second;
@@ -145,6 +145,119 @@ std::string_view wf::layout_detail::get_output_source_name(output_image_source_t
     }
 
     return "unknown";
+}
+
+wf::geometry_t wf::layout_detail::calculate_output_geometry(const output_state_t& state)
+{
+    wf::geometry_t geometry = {
+        state.position.get_x(),
+        state.position.get_y(),
+        (int32_t)(state.mode.width / state.scale),
+        (int32_t)(state.mode.height / state.scale),
+    };
+
+    if (state.transform & 1)
+    {
+        std::swap(geometry.width, geometry.height);
+    }
+
+    return geometry;
+}
+
+std::vector<wf::geometry_t> wf::layout_detail::calculate_fixed_geometries(
+    const output_configuration_t& config)
+{
+    std::vector<wf::geometry_t> geometries;
+    for (auto& entry : config)
+    {
+        if (!(entry.second.source & OUTPUT_IMAGE_SOURCE_SELF) ||
+            entry.second.position.is_automatic_position())
+        {
+            continue;
+        }
+
+        geometries.push_back(calculate_output_geometry(entry.second));
+    }
+
+    return geometries;
+}
+
+bool wf::layout_detail::has_overlapping_outputs(const output_configuration_t& config)
+{
+    auto geometries = calculate_fixed_geometries(config);
+    for (size_t i = 0; i < geometries.size(); i++)
+    {
+        for (size_t j = i + 1; j < geometries.size(); j++)
+        {
+            if (geometries[i] & geometries[j])
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool wf::layout_detail::all_outputs_disabled(const output_configuration_t& config)
+{
+    int count_enabled = 0;
+    for (auto& entry : config)
+    {
+        if (entry.second.source & OUTPUT_IMAGE_SOURCE_SELF)
+        {
+            ++count_enabled;
+        }
+    }
+
+    return count_enabled == 0;
+}
+
+bool wf::layout_detail::are_rectangles_touching(const wf::geometry_t& a, const wf::geometry_t& b)
+{
+    return !(a.x + a.width < b.x || a.y + a.height < b.y ||
+        b.x + b.width < a.x || b.y + b.height < a.y);
+}
+
+bool wf::layout_detail::has_disjoint_outputs(const output_configuration_t& config)
+{
+    auto geometries = calculate_fixed_geometries(config);
+    if (geometries.empty())
+    {
+        return false;
+    }
+
+    std::vector<std::vector<int>> graph(geometries.size());
+    for (size_t i = 0; i < geometries.size(); i++)
+    {
+        for (size_t j = i + 1; j < geometries.size(); j++)
+        {
+            if (are_rectangles_touching(geometries[i], geometries[j]))
+            {
+                graph[i].push_back(j);
+                graph[j].push_back(i);
+            }
+        }
+    }
+
+    std::vector<int> visited(geometries.size(), 0);
+    std::function<void(int)> dfs;
+    dfs = [&] (int u)
+    {
+        if (visited[u] == 1)
+        {
+            return;
+        }
+
+        visited[u] = 1;
+        for (int v : graph[u])
+        {
+            dfs(v);
+        }
+    };
+
+    dfs(0);
+    return *std::min_element(visited.begin(), visited.end()) == 0;
 }
 
 wlr_output_mode *find_matching_mode(wlr_output *output,
@@ -193,7 +306,7 @@ wlr_output_mode *find_matching_mode(wlr_output *output,
 }
 
 // from rootston
-static bool parse_modeline(const char *modeline, drmModeModeInfo & mode)
+bool wf::layout_detail::parse_modeline(const char *modeline, drmModeModeInfo & mode)
 {
     char hsync[16];
     char vsync[16];
@@ -319,6 +432,7 @@ bool output_state_t::operator ==(const output_state_t& other) const
     eq &= (transform == other.transform);
     eq &= (scale == other.scale);
     eq &= (vrr == other.vrr);
+    eq &= (hdr == other.hdr);
     eq &= (depth == other.depth);
 
     return eq;
@@ -358,7 +472,8 @@ struct output_layout_output_t
     bool is_nested_compositor  = false;
     bool inhibited = false;
     std::map<int, std::vector<uint32_t>> formats_for_depth;
-    int current_bit_depth = RENDER_BIT_DEPTH_DEFAULT;
+    int current_bit_depth = 0;
+    std::optional<bool> current_hdr_enabled;
 
     std::unique_ptr<wf::output_impl_t> output;
     wl_listener_wrapper on_destroy, on_commit, on_request_state;
@@ -369,6 +484,7 @@ struct output_layout_output_t
     wf::option_wrapper_t<double> scale_opt;
     wf::option_wrapper_t<std::string> transform_opt;
     wf::option_wrapper_t<bool> vrr_opt;
+    wf::option_wrapper_t<bool> hdr_opt;
     wf::option_wrapper_t<int> depth_opt;
 
     wf::option_wrapper_t<bool> use_ext_config{
@@ -382,6 +498,7 @@ struct output_layout_output_t
         scale_opt.load_option(config_section, "scale");
         transform_opt.load_option(config_section, "transform");
         vrr_opt.load_option(config_section, "vrr");
+        hdr_opt.load_option(config_section, "hdr");
         depth_opt.load_option(config_section, "depth");
     }
 
@@ -637,8 +754,9 @@ struct output_layout_output_t
         }
 
         state.scale     = scale_opt;
-        state.transform = get_transform_from_string(transform_opt);
+        state.transform = layout_detail::get_transform_from_string(std::string{transform_opt});
         state.vrr   = vrr_opt;
+        state.hdr   = hdr_opt;
         state.depth = depth_opt;
         return state;
     }
@@ -692,8 +810,18 @@ struct output_layout_output_t
         bool shutdown = is_shutting_down();
         if ((get_core().seat->get_active_output() == wo) && !shutdown)
         {
-            get_core().seat->focus_output(
-                get_core().output_layout->get_next_output(wo));
+            auto outputs = get_core().output_layout->get_outputs();
+            wf::dassert(!outputs.empty(),
+                "There should be at least one output left if we're not shutting down");
+
+            auto it = std::find(outputs.begin(), outputs.end(), wo);
+            if ((it == outputs.end()) || (std::next(it) == outputs.end()))
+            {
+                get_core().seat->focus_output(outputs[0]);
+            } else
+            {
+                get_core().seat->focus_output(*(std::next(it)));
+            }
         } else if (shutdown)
         {
             get_core().seat->focus_output(nullptr);
@@ -720,7 +848,7 @@ struct output_layout_output_t
 
         added_custom_modes.insert(modeline);
         drmModeModeInfo *mode = new drmModeModeInfo;
-        if (!parse_modeline(modeline.c_str(), *mode))
+        if (!layout_detail::parse_modeline(modeline.c_str(), *mode))
         {
             LOGE("invalid modeline ", modeline, " in config file");
 
@@ -763,9 +891,7 @@ struct output_layout_output_t
             /* Do not modeset if nothing changed */
             if ((handle->current_mode->width == mode.width) &&
                 (handle->current_mode->height == mode.height) &&
-                (handle->current_mode->refresh == mode.refresh) &&
-                ((handle->adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED) == current_state.vrr) &&
-                (current_bit_depth == current_state.depth))
+                (handle->current_mode->refresh == mode.refresh))
             {
                 /* Commit the enabling of the output */
                 pending_state.commit(handle);
@@ -789,36 +915,93 @@ struct output_layout_output_t
         }
 
         pending_state.commit(handle);
+    }
 
+    void apply_vrr(bool want_vrr_enabled)
+    {
         const bool adaptive_sync_enabled = (handle->adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED);
-
-        if (adaptive_sync_enabled != current_state.vrr)
+        if (adaptive_sync_enabled != want_vrr_enabled)
         {
             wlr_output_state_set_adaptive_sync_enabled(&pending_state.pending, current_state.vrr);
             if (pending_state.test_and_commit(handle))
             {
-                LOGD("Changed adaptive sync on output: ", handle->name, " to ", current_state.vrr);
+                LOGC(OUTPUT, "Changed adaptive sync on output: ", handle->name, " to ", current_state.vrr);
             } else
             {
                 LOGE("Failed to change adaptive sync on output: ", handle->name);
             }
         }
+    }
 
-        if (current_state.depth != current_bit_depth)
+    void apply_depth(int want_depth)
+    {
+        if (want_depth != current_bit_depth)
         {
-            for (auto fmt : formats_for_depth[current_state.depth])
+            for (auto fmt : formats_for_depth[want_depth])
             {
                 wlr_output_state_set_render_format(&pending_state.pending, fmt);
                 if (pending_state.test_and_commit(handle))
                 {
-                    current_bit_depth = current_state.depth;
-                    LOGD("Set output format to ", get_format_name(fmt), " on output ", handle->name);
+                    current_bit_depth = want_depth;
+                    LOGC(OUTPUT, "Set output format to ", get_format_name(fmt), " on output ", handle->name);
                     break;
                 }
 
-                LOGD("Failed to set output format ", get_format_name(fmt), " on output ", handle->name);
+                LOGW("Failed to set output format ", get_format_name(fmt), " on output ", handle->name);
             }
         }
+    }
+
+    void apply_hdr(bool want_hdr_enabled)
+    {
+        if (this->current_hdr_enabled.value_or(false) == want_hdr_enabled)
+        {
+            return;
+        }
+
+        const wlr_color_named_primaries primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020;
+        const wlr_color_transfer_function tf = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
+
+        if (!(handle->supported_primaries & primaries))
+        {
+            LOGE("Cannot enable HDR on output ", handle->name, ": BT2020 primaries not supported by output");
+            return;
+        }
+
+        if (!(handle->supported_transfer_functions & tf))
+        {
+            LOGE("Cannot enable HDR on output ", handle->name,
+                ": PQ transfer function not supported by output");
+            return;
+        }
+
+        if (!handle->renderer->features.output_color_transform)
+        {
+            LOGE("Cannot enable HDR on output ", handle->name,
+                ": renderer doesn't support output color transforms");
+            return;
+        }
+
+        if (current_hdr_enabled.value_or(false))
+        {
+            LOGC(OUTPUT, "Disabling HDR on output ", handle->name);
+            wlr_output_state_set_image_description(&pending_state.pending, NULL);
+            pending_state.commit(handle);
+        } else
+        {
+            LOGC(OUTPUT, "Enabling HDR on output ", handle->name);
+            const wlr_output_image_description image_desc = {
+                .primaries = primaries,
+                .transfer_function = tf,
+                .mastering_display_primaries = {},
+                .mastering_luminance = {},
+                .max_cll  = 0,
+                .max_fall = 0,
+            };
+            wlr_output_state_set_image_description(&pending_state.pending, &image_desc);
+        }
+
+        current_hdr_enabled = want_hdr_enabled;
     }
 
     /* Mirroring implementation */
@@ -1056,6 +1239,9 @@ struct output_layout_output_t
 
         set_enabled(!(state.source & OUTPUT_IMAGE_SOURCE_NONE));
         apply_mode(state.mode, state.uses_custom_mode);
+        apply_vrr(state.vrr);
+        apply_depth(state.depth);
+        apply_hdr(state.hdr);
 
         if (state.source & OUTPUT_IMAGE_SOURCE_SELF)
         {
@@ -1449,129 +1635,39 @@ class output_layout_t::impl
      * Calculate the output layout geometry for the state.
      * The state represents a non-automatically positioned enabled output.
      */
-    wf::geometry_t calculate_geometry_from_state(
-        const output_state_t& state) const
+    wf::geometry_t calculate_geometry_from_state(const output_state_t& state) const
     {
-        wf::geometry_t geometry = {
-            state.position.get_x(),
-            state.position.get_y(),
-            (int32_t)(state.mode.width / state.scale),
-            (int32_t)(state.mode.height / state.scale),
-        };
-
-        if (state.transform & 1)
-        {
-            std::swap(geometry.width, geometry.height);
-        }
-
-        return geometry;
+        return layout_detail::calculate_output_geometry(state);
     }
 
     /** @return A list of geometries of fixed position outputs. */
-    std::vector<wf::geometry_t> calculate_fixed_geometries(
-        const output_configuration_t& config)
+    std::vector<wf::geometry_t> calculate_fixed_geometries(const output_configuration_t& config)
     {
-        std::vector<wf::geometry_t> geometries;
-        for (auto& entry : config)
-        {
-            if (!(entry.second.source & OUTPUT_IMAGE_SOURCE_SELF) ||
-                entry.second.position.is_automatic_position())
-            {
-                continue;
-            }
-
-            geometries.push_back(calculate_geometry_from_state(entry.second));
-        }
-
-        return geometries;
+        return layout_detail::calculate_fixed_geometries(config);
     }
 
     /** @return true if there are overlapping outputs */
     bool test_overlapping_outputs(const output_configuration_t& config)
     {
-        auto geometries = calculate_fixed_geometries(config);
-        for (size_t i = 0; i < geometries.size(); i++)
-        {
-            for (size_t j = i + 1; j < geometries.size(); j++)
-            {
-                if (geometries[i] & geometries[j])
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return layout_detail::has_overlapping_outputs(config);
     }
 
     /** @return true if all outputs are disabled. */
     bool test_all_disabled_outputs(const output_configuration_t& config)
     {
-        int count_enabled = 0;
-        for (auto& entry : config)
-        {
-            if (entry.second.source & OUTPUT_IMAGE_SOURCE_SELF)
-            {
-                ++count_enabled;
-            }
-        }
-
-        return count_enabled == 0;
+        return layout_detail::all_outputs_disabled(config);
     }
 
     /* @return true if rectangles have a common interior or border point. */
     bool rectangles_touching(const wf::geometry_t& a, const wf::geometry_t& b)
     {
-        return !(a.x + a.width < b.x || a.y + a.height < b.y ||
-            b.x + b.width < a.x || b.y + b.height < a.y);
+        return layout_detail::are_rectangles_touching(a, b);
     }
 
     /** @return true if fixed position outputs do not form a continuous space */
     bool test_disjoint_outputs(const output_configuration_t& config)
     {
-        auto geometries = calculate_fixed_geometries(config);
-        if (geometries.empty())
-        {
-            /* Not disjoint */
-            return false;
-        }
-
-        /* Create graph with a vertex for each rectangle.
-         * Configuration is disjoint iff the graph has more than one component */
-        std::vector<std::vector<int>> graph(geometries.size());
-        for (size_t i = 0; i < geometries.size(); i++)
-        {
-            for (size_t j = i + 1; j < geometries.size(); j++)
-            {
-                if (rectangles_touching(geometries[i], geometries[j]))
-                {
-                    graph[i].push_back(j);
-                    graph[j].push_back(i);
-                }
-            }
-        }
-
-        /* Do a depth-first-search */
-        std::vector<int> visited(geometries.size(), 0);
-        std::function<void(int)> dfs;
-        dfs = [&] (int u)
-        {
-            if (visited[u] == 1)
-            {
-                return;
-            }
-
-            visited[u] = 1;
-            for (int v : graph[u])
-            {
-                dfs(v);
-            }
-        };
-
-        dfs(0);
-
-        // If we have a zero somewhere it means the vertex was not reached
-        return *std::min_element(visited.begin(), visited.end()) == 0;
+        return layout_detail::has_disjoint_outputs(config);
     }
 
     /** Check whether the given configuration can be applied */
@@ -1650,6 +1746,7 @@ class output_layout_t::impl
             LOGC(OUTPUT, "\t  scale: ", entry.second.scale);
             LOGC(OUTPUT, "\t  transform: ", layout_detail::wl_transform_to_string(entry.second.transform));
             LOGC(OUTPUT, "\t  vrr: ", entry.second.vrr);
+            LOGC(OUTPUT, "\t  hdr: ", entry.second.hdr);
             LOGC(OUTPUT, "\t  depth: ", entry.second.depth);
         }
 
@@ -1855,11 +1952,6 @@ class output_layout_t::impl
         return output_layout;
     }
 
-    size_t get_num_outputs()
-    {
-        return get_outputs().size();
-    }
-
     wf::output_t *find_output(wlr_output *output)
     {
         if (outputs.count(output))
@@ -1912,28 +2004,13 @@ class output_layout_t::impl
         return result;
     }
 
-    wf::output_t *get_next_output(wf::output_t *output)
-    {
-        auto os = get_outputs();
-
-        auto it = std::find(os.begin(), os.end(), output);
-        if ((it == os.end()) || (std::next(it) == os.end()))
-        {
-            return os[0];
-        } else
-        {
-            return *(++it);
-        }
-    }
-
-    wf::output_t *get_output_coords_at(const wf::pointf_t& origin,
+    wf::output_t *find_closest_output(const wf::pointf_t& origin,
         wf::pointf_t& closest)
     {
         wlr_output_layout_closest_point(output_layout, NULL,
             origin.x, origin.y, &closest.x, &closest.y);
 
-        auto handle =
-            wlr_output_layout_output_at(output_layout, closest.x, closest.y);
+        auto handle = wlr_output_layout_output_at(output_layout, closest.x, closest.y);
         assert(handle || is_shutting_down());
         if (!handle)
         {
@@ -1947,13 +2024,6 @@ class output_layout_t::impl
         {
             return outputs[handle]->output.get();
         }
-    }
-
-    wf::output_t *get_output_at(int x, int y)
-    {
-        wf::pointf_t dummy;
-
-        return get_output_coords_at({1.0 * x, 1.0 * y}, dummy);
     }
 
     bool apply_configuration(const output_configuration_t& configuration,
@@ -1979,30 +2049,21 @@ wlr_output_layout*output_layout_t::get_handle()
     return pimpl->get_handle();
 }
 
-wf::output_t*output_layout_t::get_output_at(int x, int y)
+wf::output_t*output_layout_t::find_closest_output(wf::pointf_t point)
 {
-    return pimpl->get_output_at(x, y);
+    wf::pointf_t dummy;
+    return find_closest_output(point, dummy);
 }
 
-wf::output_t*output_layout_t::get_output_coords_at(wf::pointf_t origin,
+wf::output_t*output_layout_t::find_closest_output(wf::pointf_t origin,
     wf::pointf_t& closest)
 {
-    return pimpl->get_output_coords_at(origin, closest);
-}
-
-size_t output_layout_t::get_num_outputs()
-{
-    return pimpl->get_num_outputs();
+    return pimpl->find_closest_output(origin, closest);
 }
 
 std::vector<wf::output_t*> output_layout_t::get_outputs()
 {
     return pimpl->get_outputs();
-}
-
-wf::output_t*output_layout_t::get_next_output(wf::output_t *output)
-{
-    return pimpl->get_next_output(output);
 }
 
 wf::output_t*output_layout_t::find_output(wlr_output *output)

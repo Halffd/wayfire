@@ -441,6 +441,11 @@ class wayfire_input_method_v1_panel_surface
 
             on_surface_destroy.disconnect();
             on_surface_commit.disconnect();
+
+            if (resource)
+            {
+                wl_resource_destroy(resource);
+            }
         });
         on_surface_destroy.connect(&surface->events.destroy);
     }
@@ -527,7 +532,7 @@ class wayfire_input_method_v1 : public wf::plugin_interface_t, public wf::text_i
         if (enable_text_input_v3)
         {
             wf::get_core().protocols.text_input = wlr_text_input_manager_v3_create(wf::get_core().display);
-            on_text_input_v3_created.connect(&wf::get_core().protocols.text_input->events.text_input);
+            on_text_input_v3_created.connect(&wf::get_core().protocols.text_input->events.new_text_input);
             on_text_input_v3_created.set_callback([&] (void *data)
             {
                 handle_text_input_v3_created(static_cast<wlr_text_input_v3*>(data));

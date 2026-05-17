@@ -1,35 +1,72 @@
 <?xml version="1.0"?>
 <wayfire>
-	<plugin name="switcher">
-		<_short>Switcher</_short>
-		<_long>A plugin to change active window with a thumbnail grid animation.</_long>
-		<category>Window Management</category>
-		<!-- Key-bindings -->
-		<option name="next_view" type="key">
-			<_short>Next view</_short>
-			<_long>Switches to the next view with the specified key.</_long>
-			<default>&lt;alt&gt; KEY_TAB</default>
-		</option>
-		<option name="prev_view" type="key">
-			<_short>Previous view</_short>
-			<_long>Switches to the previous view with the specified key.</_long>
-			<default>&lt;alt&gt; &lt;shift&gt; KEY_TAB</default>
-		</option>
-		<!-- Effects -->
-		<option name="speed" type="animation">
-			<_short>Duration</_short>
-			<_long>Sets the duration of the animation in milliseconds.</_long>
-			<default>500</default>
-		</option>
-		<option name="view_thumbnail_width" type="int">
-			<_short>Thumbnail width</_short>
-			<_long>Sets the thumbnail width in pixels. Height is calculated automatically to maintain aspect ratio.</_long>
-			<default>600</default>
-		</option>
-		<option name="grid_width_percent" type="int">
-			<_short>Grid width percentage</_short>
-			<_long>Sets the total grid width as percentage of screen width (e.g., 90 for 90%).</_long>
-			<default>90</default>
-		</option>
-	</plugin>
+<plugin name="switcher">
+<_short>Switcher</_short>
+<_long>A plugin to change active window with a thumbnail grid animation. Supports arrow key navigation, Enter to select, Escape to cancel.</_long>
+<category>Window Management</category>
+<!-- Key-bindings -->
+<option name="next_view" type="key">
+<_short>Next view</_short>
+<_long>Switches to the next view with the specified key.</_long>
+<default>&lt;alt&gt; KEY_TAB</default>
+</option>
+<option name="prev_view" type="key">
+<_short>Previous view</_short>
+<_long>Switches to the previous view with the specified key.</_long>
+<default>&lt;alt&gt; &lt;shift&gt; KEY_TAB</default>
+</option>
+<!-- Effects -->
+<option name="speed" type="animation">
+<_short>Duration</_short>
+<_long>Sets the duration of the animation in milliseconds.</_long>
+<default>500</default>
+</option>
+<option name="view_thumbnail_width" type="int">
+<_short>Thumbnail width</_short>
+<_long>Sets the thumbnail width in pixels. Height is calculated automatically to maintain aspect ratio.</_long>
+<default>600</default>
+<min>100</min>
+<max>2000</max>
+</option>
+<option name="grid_width_percent" type="int">
+<_short>Grid width percentage</_short>
+<_long>Sets the total grid width as percentage of screen width (e.g., 90 for 90%).</_long>
+<default>90</default>
+<min>50</min>
+<max>100</max>
+</option>
+<option name="selected_scale" type="double">
+<_short>Selected scale factor</_short>
+<_long>Scale multiplier for the currently selected thumbnail. 1.0 means no zoom, values above 1.0 enlarge the selected view.</_long>
+<default>1.08</default>
+<min>1.0</min>
+<max>2.0</max>
+</option>
+<option name="inactive_alpha" type="double">
+<_short>Inactive alpha</_short>
+<_long>Opacity of non-selected window thumbnails. Lower values make unselected windows more transparent.</_long>
+<default>0.7</default>
+<min>0.1</min>
+<max>1.0</max>
+</option>
+<option name="vertical_spacing" type="int">
+<_short>Vertical spacing</_short>
+<_long>Vertical spacing in pixels between rows of thumbnails.</_long>
+<default>20</default>
+<min>0</min>
+<max>200</max>
+</option>
+  <option name="background_dim" type="double">
+  <_short>Background dimming</_short>
+  <_long>Brightness factor for the background while the switcher is active. 1.0 means no dimming, lower values make the background darker.</_long>
+  <default>0.6</default>
+  <min>0.0</min>
+  <max>1.0</max>
+  </option>
+  <option name="click_to_select" type="bool">
+  <_short>Click to select</_short>
+  <_long>Whether clicking on a thumbnail selects it. Middle-click closes the window regardless of this setting.</_long>
+  <default>true</default>
+  </option>
+  </plugin>
 </wayfire>

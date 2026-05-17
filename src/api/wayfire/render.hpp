@@ -1,5 +1,12 @@
 #pragma once
 
+#ifdef WF_USE_CONFIG_H
+    #include <config.h>
+#else
+    #include <wayfire/config.h>
+#endif
+
+#include "wayfire/signal-provider.hpp"
 #include <memory>
 #include <vector>
 #include <wayfire/config/types.hpp>
@@ -11,19 +18,157 @@
 namespace wf
 {
 class output_t;
+struct auxilliary_buffer_t;
+namespace vk
+{
+class command_buffer_t;
+}
 
 /**
- * A simple, non-owning wrapper for a wlr_texture + source box.
+ * A struct which describes the color space of a given texture.
  */
-struct texture_t
+struct color_transform_t
 {
+    /**
+     * The transfer function describes how the color values should be interpreted when rendering the texture,
+     * and what corrections need to be applied when rendering them. Examples include gamma 2.2, srgb or
+     * linear encoding.
+     */
+    wlr_color_transfer_function transfer_function = WLR_COLOR_TRANSFER_FUNCTION_SRGB;
+
+    /**
+     * Color primaries describe the color volume of the texture, i.e how the color values map to real colors.
+     * Examples: SRGB (default), BT.2020.
+     */
+    wlr_color_named_primaries primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB;
+
+    /**
+     * Color encoding for ycbcr textures, not used for rgb textures.
+     */
+    wlr_color_encoding color_encoding = WLR_COLOR_ENCODING_NONE;
+
+    /**
+     * Color range for ycbcr textures, not used for rgb textures.
+     */
+    wlr_color_range color_range = WLR_COLOR_RANGE_NONE;
+
+    bool operator ==(const color_transform_t& other) const;
+    bool operator !=(const color_transform_t& other) const;
+};
+
+/**
+ * A wrapper around wlr_texture which ensures that the texture is kept alive as long as the wrapper object
+ * is alive.
+ *
+ * It also provides some additional information about how the texture should be rendered, such as the source
+ * box, buffer transform, filter mode and color properties.
+ */
+class texture_t : public wf::signal::provider_t
+{
+  public:
+    /**
+     * Emitted on destruction of the texture_t object, i.e when the texture is about to be destroyed.
+     */
+    struct destroy_signal
+    {
+        texture_t *self;
+    };
+
+    /**
+     * Get the source box of the texture,
+     * i.e the subrectangle of the texture which should be used for rendering.
+     */
+    std::optional<wlr_fbox> get_source_box() const;
+
+    /**
+     * Set the source box of the texture.
+     * If not set, the full texture should be used for rendering.
+     */
+    void set_source_box(const std::optional<wlr_fbox>& box);
+
+    /**
+     * Get the texture transform, defaults to WL_OUTPUT_TRANSFORM_NORMAL.
+     */
+    wl_output_transform get_transform() const;
+
+    /**
+     * Set the texture transform.
+     * The texture transform can be used to specify additional rotation and flipping to apply to the texture
+     * when rendering it.
+     */
+    void set_transform(wl_output_transform t);
+
+    /**
+     * Get the filter mode to use when rendering the texture (nearest or bilinear) at sizes which do not align
+     * perfectly with the texture pixels.
+     *
+     * If not set, the default filter mode of the renderer will be used.
+     */
+    std::optional<wlr_scale_filter_mode> get_filter_mode() const;
+
+    /**
+     * Set the filter mode to use when rendering the texture at sizes different than the texture size.
+     */
+    void set_filter_mode(const std::optional<wlr_scale_filter_mode>& mode);
+
+    /**
+     * Get the color properties of the texture, which describes how the colors in the texture should be
+     * interpreted when rendering it. See @color_transform_t for details.
+     */
+    color_transform_t get_color_transform() const;
+
+    /**
+     * Set the color properties of the texture, see @color_transform_t for details.
+     */
+    void set_color_transform(const color_transform_t& ct);
+
+    /**
+     * Manage an existing wlr_texture created from a wlr_buffer.
+     * We keep the texture alive by keeping the associated buffer alive.
+     */
+    static std::shared_ptr<texture_t> from_buffer(wlr_buffer *buffer, wlr_texture *texture);
+
+    /**
+     * Manage an existing wlr_texture created without a wlr_buffer.
+     * In this case, the caller must have ownership of the texture.
+     * The ownership is then passed to the returned texture_t object.
+     */
+    static std::shared_ptr<texture_t> from_texture(wlr_texture *texture);
+
+    /**
+     * Create a texture from an auxilliary buffer.
+     * The auxilliary buffer must have a valid buffer and texture allocated.
+     */
+    static std::shared_ptr<texture_t> from_aux(auxilliary_buffer_t& buffer);
+
+    /**
+     * Get the width of the texture in pixels.
+     */
+    int32_t get_width() const;
+
+    /**
+     * Get the height of the texture in pixels.
+     */
+    int32_t get_height() const;
+
+    ~texture_t();
+
+    /**
+     * Get the underlying wlr_texture pointer.
+     */
+    wlr_texture *get_wlr_texture() const;
+
+  private:
+    texture_t();
+
     wlr_texture *texture = NULL;
+    wlr_buffer *buffer   = NULL; // If NULL, we own @texture.
+
     std::optional<wlr_fbox> source_box = {};
     wl_output_transform transform = WL_OUTPUT_TRANSFORM_NORMAL;
     std::optional<wlr_scale_filter_mode> filter_mode = {};
+    color_transform_t color_transform;
 };
-
-struct auxilliary_buffer_t;
 
 /**
  * A simple wrapper for buffers which are used as render targets.
@@ -185,6 +330,12 @@ struct render_target_t : public render_buffer_t
     explicit render_target_t(const render_buffer_t& buffer);
     explicit render_target_t(const auxilliary_buffer_t& buffer);
 
+    render_target_t(const render_target_t& other);
+    render_target_t(render_target_t&& other);
+    render_target_t& operator =(const render_target_t& other);
+    render_target_t& operator =(render_target_t&& other);
+    ~render_target_t();
+
     // Describes the logical coordinates of the render area, in whatever
     // coordinate system the render target needs.
     wf::geometry_t geometry = {0, 0, 0, 0};
@@ -256,6 +407,29 @@ struct render_target_t : public render_buffer_t
      * geometry_box_from_framebuffer_box.
      */
     wf::region_t geometry_region_from_framebuffer_region(const wf::region_t& region) const;
+
+    /**
+     * The inverse of the color transform that will be applied to the render target in the next compositing
+     * step. For example, this is the inverse transform of the color transform applied by the monitor for
+     * render targets directly on the output, or linear encoding for auxilliary buffers used for passing
+     * through pixel data (for example transformers).
+     *
+     * When not set, it acts as the wlroots default (gamma 2.2). Note that EXT_LINEAR and SRGB color transfers
+     * usually result in faster performance in Vulkan, so they should be preferred where possible.
+     */
+    wlr_color_transform *get_color_transform() const
+    {
+        return inverse_eotf;
+    }
+
+    /**
+     * Set a new color transform for the render target.
+     */
+    void set_color_transform(wlr_color_transform *transform);
+
+  private:
+    wlr_color_transform *inverse_eotf = nullptr;
+    void copy_from(const render_target_t& other);
 };
 
 namespace scene
@@ -311,7 +485,7 @@ struct render_pass_params_t
     /**
      * Additional options for the wlroots buffer pass.
      */
-    wlr_buffer_pass_options *pass_opts = nullptr;
+    wlr_buffer_pass_options pass_opts{};
 
     /**
      * Flags for this render pass, see @render_pass_flags.
@@ -319,13 +493,15 @@ struct render_pass_params_t
     uint32_t flags = 0;
 };
 
+class vulkan_render_state_t;
+
 /**
  * A render pass is used to generate and execute a set of drawing commands to the same render target.
  */
 class render_pass_t
 {
     render_pass_params_t params;
-    wlr_render_pass *pass = NULL;
+    wlr_render_pass *_pass = NULL;
 
   public:
     render_pass_t(const render_pass_params_t& params);
@@ -340,30 +516,38 @@ class render_pass_t
     ~render_pass_t();
 
     /**
-     * Run a new render pass from start to finish.
-     * This includes generate instructions for the render pass and executing them.
+     * Create, run and submit a render pass in one go.
      *
-     * The render pass goes as described below:
+     * Equivalent to:
+     *
+     * ```
+     * render_pass_t pass{params};
+     * pass.run_partial();
+     * pass.submit();
+     * ```
+     *
+     * @return The full damage which was rendered on the render target, as described in @run_partial().
+     */
+    static wf::region_t run(const wf::render_pass_params_t& params);
+
+    /**
+     * Execute the main part of a render pass.
+     * This involves the following steps:
      *
      * 1. Optionally, emit render-pass-begin.
      * 2. Render instructions are generated from the given instances. During this phase, the instances may
      *    start and execute sub-passes.
      * 3. The wlroots render pass begins.
      * 4. Optionally, clear visible background areas with @background_color.
-     * 5. Render instructions are executed back-to-forth.
+     * 5. Render instructions are executed back-to-front, i.e starting with the last instruction in the list.
      * 6. Optionally, emit render-pass-end.
-     * 7. The wlroots render pass is submitted.
      *
-     * By specifying @flags, steps 1, 4, and 6 can be enabled and disabled.
+     * By specifying @render_pass_params_t::flags, steps 1, 4, and 6 can be enabled and disabled.
+     * After @run_partial() returns, additional render operations may be added to the pass, and finally
+     * the pass needs to be submitted with @submit() to ensure that all operations are executed.
      *
      * @return The full damage which was rendered on the render target. It may be more (or
-     *  less) than @params.damage because plugins are allowed to modify the
-     *  damage in render-pass-begin.
-     */
-    static wf::region_t run(const wf::render_pass_params_t& params);
-
-    /**
-     * Same as @run, but does not submit the wlroots render pass (i.e step 7 is omitted).
+     *  less) than @params.damage because plugins are allowed to modify the damage in render-pass-begin.
      */
     wf::region_t run_partial();
 
@@ -383,7 +567,7 @@ class render_pass_t
     /**
      * Add a texture rendering operation to the pass.
      */
-    void add_texture(const wf::texture_t& texture,
+    void add_texture(const std::shared_ptr<wf::texture_t>& texture,
         const wf::render_target_t& adjusted_target,
         const wf::geometry_t& geometry,
         const wf::region_t& damage,
@@ -392,7 +576,7 @@ class render_pass_t
     /**
      * Add a texture rendering operation to the pass using wlr_fbox for geometry.
      */
-    void add_texture(const wf::texture_t& texture,
+    void add_texture(const std::shared_ptr<wf::texture_t>& texture,
         const wf::render_target_t& adjusted_target,
         const wlr_fbox& geometry,
         const wf::region_t& damage,
@@ -471,12 +655,37 @@ class render_pass_t
         return false;
     }
 
+#if WF_HAS_VULKANFX
+    template<class F>
+    bool custom_vulkan_subpass(F&& fn)
+    {
+        if (auto state = prepare_vulkan_subpass())
+        {
+            fn(*state, *active_command_buffer);
+            end_vulkan_subpass();
+            return true;
+        }
+
+        return false;
+    }
+
+#endif
+
   private:
+
+#if WF_HAS_VULKANFX
+    vk::command_buffer_t *active_command_buffer = nullptr;
+    vulkan_render_state_t *prepare_vulkan_subpass();
+    void end_vulkan_subpass();
+#endif
+
     bool prepare_gles_subpass();
     bool prepare_gles_subpass(const wf::render_target_t& target);
     void finish_gles_subpass();
-};
 
+    bool needs_restart = false;
+    wlr_render_pass *_get_pass();
+};
 
 /**
  * Signal that a render pass starts.

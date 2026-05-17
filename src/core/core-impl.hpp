@@ -8,6 +8,8 @@
 #include "wayfire/scene.hpp"
 #include "wayfire/util.hpp"
 #include <wayfire/nonstd/wlroots-full.hpp>
+#include <wayfire/vulkan.hpp>
+#include "src/core/xdg-output-management.hpp"
 
 namespace wf
 {
@@ -21,9 +23,14 @@ class compositor_core_impl_t : public compositor_core_t
     wlr_egl *egl = NULL;
     wlr_compositor *compositor;
 
+#if WF_HAS_VULKANFX
+    std::unique_ptr<wf::vulkan_render_state_t> vulkan_state;
+#endif
+
     std::unique_ptr<wf::input_manager_t> input;
     std::unique_ptr<input_method_relay> im_relay;
     std::unique_ptr<plugin_manager_t> plugin_mgr;
+    std::unique_ptr<wf::xdg_output_manager_v1> xdg_output_manager;
 
     /**
      * Initialize the compositor core.

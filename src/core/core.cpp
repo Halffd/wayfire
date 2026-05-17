@@ -147,11 +147,13 @@ void wf::compositor_core_impl_t::init()
     protocols.screencopy = wlr_screencopy_manager_v1_create(display);
     protocols.foreign_toplevel_list = wlr_ext_foreign_toplevel_list_v1_create(display, 1);
     protocols.image_copy_capture    = wlr_ext_image_copy_capture_manager_v1_create(display, 1);
-    protocols.image_capture_source  = wlr_ext_output_image_capture_source_manager_v1_create(display, 1);
+    protocols.output_image_capture_source = wlr_ext_output_image_capture_source_manager_v1_create(display, 1);
+    protocols.foreign_toplevel_image_capture_source =
+        wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(display, 1);
     protocols.gamma_v1 = wlr_gamma_control_manager_v1_create(display);
-    protocols.export_dmabuf  = wlr_export_dmabuf_manager_v1_create(display);
-    protocols.output_manager = wlr_xdg_output_manager_v1_create(display,
-        output_layout->get_handle());
+    protocols.export_dmabuf = wlr_export_dmabuf_manager_v1_create(display);
+    xdg_output_manager = std::make_unique<wf::xdg_output_manager_v1>(display,
+        output_layout.get());
     protocols.drm_v1 = wlr_drm_lease_v1_manager_create(display, backend);
     drm_lease_request.set_callback([&] (void *data)
     {
@@ -243,6 +245,7 @@ void wf::compositor_core_impl_t::init()
 
     wlr_fractional_scale_manager_v1_create(display, 1);
     wlr_single_pixel_buffer_manager_v1_create(display);
+    wlr_color_representation_manager_v1_create_with_renderer(display, 1, renderer);
 
     this->bindings = std::make_unique<bindings_repository_t>();
     image_io::init();
@@ -250,6 +253,14 @@ void wf::compositor_core_impl_t::init()
     {
         OpenGL::init();
     }
+
+#if WF_HAS_VULKANFX
+    if (is_vulkan())
+    {
+        this->vulkan_state = std::make_unique<wf::vulkan_render_state_t>(renderer);
+    }
+
+#endif
 
     increase_nofile_limit();
 
@@ -294,8 +305,7 @@ void wf::compositor_core_impl_t::post_init()
 
     this->state = compositor_state_t::RUNNING;
     // Move pointer to the middle of the leftmost, topmost output
-    wf::pointf_t p;
-    wf::output_t *wo = wf::get_core().output_layout->get_output_coords_at({FLT_MIN, FLT_MIN}, p);
+    wf::output_t *wo = output_layout->find_closest_output({FLT_MIN, FLT_MIN});
     // Output might be noop but guaranteed to not be null
     wo->ensure_pointer(true);
     seat->focus_output(wo);
@@ -366,7 +376,12 @@ void wf::compositor_core_impl_t::fini()
     input.reset();
     output_layout.reset();
     tx_manager.reset();
+
     OpenGL::fini();
+#if WF_HAS_VULKANFX
+    vulkan_state.reset();
+#endif
+
     disconnect_signals();
     wl_display_destroy(static_core->display);
 }

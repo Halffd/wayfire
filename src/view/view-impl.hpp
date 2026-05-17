@@ -76,6 +76,8 @@ void xwayland_update_default_cursor();
 /* Ensure that the given surface is on top of the Xwayland stack order. */
 void xwayland_bring_to_front(wlr_surface *surface);
 int xwayland_get_pid();
+wl_client *xwayland_get_client();
+void xwayland_adjust_cursor(wlr_surface *cursor_surface);
 
 void init_desktop_apis();
 void fini_desktop_apis();

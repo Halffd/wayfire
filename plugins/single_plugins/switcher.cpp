@@ -29,21 +29,24 @@
 #include <algorithm>
 #include <set>
 #include <cmath>
+#include <linux/input-event-codes.h>
+#include <xkbcommon/xkbcommon.h>
 
 constexpr const char *switcher_transformer = "switcher-3d";
 constexpr const char *switcher_transformer_background = "switcher-3d";
-constexpr float background_dim_factor = 0.6;
 
 using namespace wf::animation;
 class SwitcherPaintAttribs
 {
   public:
-    SwitcherPaintAttribs(const duration_t& duration) :
-        scale_x(duration, 1, 1), scale_y(duration, 1, 1),
-        off_x(duration, 0, 0), off_y(duration, 0, 0), off_z(duration, 0, 0),
-        rotation(duration, 0, 0), alpha(duration, 1, 1)
+    SwitcherPaintAttribs(wf::option_sptr_t<wf::animation_description_t> speed) :
+        timer{speed},
+        scale_x(timer, 1, 1), scale_y(timer, 1, 1),
+        off_x(timer, 0, 0), off_y(timer, 0, 0), off_z(timer, 0, 0),
+        rotation(timer, 0, 0), alpha(timer, 1, 1)
     {}
 
+    duration_t timer;
     timed_transition_t scale_x, scale_y;
     timed_transition_t off_x, off_y, off_z;
     timed_transition_t rotation, alpha;
@@ -56,7 +59,8 @@ struct SwitcherView
     int index; // position in grid
     wf::geometry_t target_geometry; // target position in grid
 
-    SwitcherView(duration_t& duration) : attribs(duration), index(-1)
+    SwitcherView(const wf::option_sptr_t<wf::animation_description_t>& duration) :
+        attribs(duration), index(-1)
     {}
 
     /* Make animation start values the current progress of duration */
@@ -68,6 +72,11 @@ struct SwitcherView
     void to_end()
     {
         for_each([] (timed_transition_t& t) { t.set(t.end, t.end); });
+    }
+
+    bool animation_finished()
+    {
+        return attribs.timer.running() == false;
     }
 
   private:
@@ -85,20 +94,26 @@ struct SwitcherView
     }
 };
 
-class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyboard_interaction_t
+class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyboard_interaction_t, public wf::pointer_interaction_t
 {
-    wf::option_wrapper_t<int> view_thumbnail_width{"switcher/view_thumbnail_width"};
-    wf::option_wrapper_t<int> grid_width_percent{"switcher/grid_width_percent"};
-    wf::option_wrapper_t<wf::animation_description_t> speed{"switcher/speed"};
+  wf::option_wrapper_t<int> view_thumbnail_width{"switcher/view_thumbnail_width"};
+  wf::option_wrapper_t<int> grid_width_percent{"switcher/grid_width_percent"};
+  wf::option_wrapper_t<wf::animation_description_t> speed{"switcher/speed"};
+  wf::option_wrapper_t<double> selected_scale{"switcher/selected_scale"};
+  wf::option_wrapper_t<double> inactive_alpha_opt{"switcher/inactive_alpha"};
+  wf::option_wrapper_t<int> v_spacing{"switcher/vertical_spacing"};
+  wf::option_wrapper_t<double> background_dim_opt{"switcher/background_dim"};
+  wf::option_wrapper_t<bool> click_to_select{"switcher/click_to_select"};
 
-    duration_t duration{speed};
-    duration_t background_dim_duration{speed};
-    timed_transition_t background_dim{background_dim_duration};
+  duration_t background_dim_duration{speed};
+  timed_transition_t background_dim{background_dim_duration};
 
-    std::unique_ptr<wf::input_grab_t> input_grab;
+  std::unique_ptr<wf::input_grab_t> input_grab;
 
-    std::vector<SwitcherView> views;
-    int selected_index = 0; // currently selected thumbnail in grid
+  std::vector<SwitcherView> views;
+  std::vector<SwitcherView*> filtered_views;
+  std::string search_query;
+  int selected_index = 0;
 
     // Grid layout calculations
     int grid_cols = 0;
@@ -203,18 +218,248 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
             &prev_view_binding);
         output->connect(&view_disappeared);
 
-        input_grab = std::make_unique<wf::input_grab_t>("switcher", output, this, nullptr, nullptr);
+        input_grab = std::make_unique<wf::input_grab_t>("switcher", output, this, this, nullptr);
         grab_interface.cancel = [=] () {deinit_switcher();};
     }
 
-    void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
+  void handle_pointer_button(const wlr_pointer_button_event& ev) override
+  {
+    if (!active || (int)ev.state != (int)WLR_BUTTON_RELEASED)
     {
-        auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
-        if ((event.state == WLR_KEY_RELEASED) && (mod & activating_modifiers))
-        {
-            handle_done();
-        }
+      return;
     }
+
+    if (!click_to_select)
+    {
+      return;
+    }
+
+    auto gc = wf::get_core().get_cursor_position();
+    auto og = output->get_layout_geometry();
+    gc.x -= og.x;
+    gc.y -= og.y;
+
+    for (size_t i = 0; i < filtered_views.size(); i++)
+    {
+      if (gc.x >= filtered_views[i]->target_geometry.x &&
+          gc.x <= filtered_views[i]->target_geometry.x + filtered_views[i]->target_geometry.width &&
+          gc.y >= filtered_views[i]->target_geometry.y &&
+          gc.y <= filtered_views[i]->target_geometry.y + filtered_views[i]->target_geometry.height)
+      {
+        if (ev.button == BTN_MIDDLE)
+        {
+          close_selected_view(i);
+          return;
+        }
+
+        selected_index = i;
+        handle_done();
+        return;
+      }
+    }
+  }
+
+  void close_selected_view(int idx)
+  {
+    if (idx < 0 || idx >= (int)filtered_views.size())
+    {
+      return;
+    }
+
+    auto view_to_close = filtered_views[idx]->view;
+    view_to_close->close();
+
+    cleanup_views([=] (SwitcherView& sv)
+    {
+      return sv.view == view_to_close;
+    });
+
+    apply_filter();
+
+    if (filtered_views.empty())
+    {
+      handle_done();
+      return;
+    }
+
+    if (selected_index >= (int)filtered_views.size())
+    {
+      selected_index = (int)filtered_views.size() - 1;
+    }
+
+    recalc_grid_animation();
+  }
+
+  void handle_keyboard_key(wf::seat_t*, wlr_keyboard_key_event event) override
+  {
+    if (!active)
+    {
+      auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
+      if ((event.state == WLR_KEY_RELEASED) && (mod & activating_modifiers))
+      {
+        handle_done();
+      }
+      return;
+    }
+
+    if (event.state != WLR_KEY_PRESSED)
+    {
+      auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
+      if ((event.state == WLR_KEY_RELEASED) && (mod & activating_modifiers))
+      {
+        handle_done();
+      }
+      return;
+    }
+
+    auto mod = wf::get_core().seat->get_keyboard_modifiers();
+    if (active && !mod)
+    {
+      switch (event.keycode)
+      {
+        case KEY_LEFT:
+        case KEY_RIGHT:
+        case KEY_UP:
+        case KEY_DOWN:
+        case KEY_HOME:
+        case KEY_END:
+        case KEY_ENTER:
+        case KEY_ESC:
+        case KEY_DELETE:
+        case KEY_BACKSPACE:
+        case KEY_TAB:
+        case KEY_PAGEUP:
+        case KEY_PAGEDOWN:
+          break;
+
+        default:
+        {
+          xkb_state *xkb = wf::get_core().seat->get_xkb_state();
+          if (xkb)
+          {
+            xkb_keycode_t xkb_keycode = event.keycode + 8;
+            uint32_t ch32 = xkb_state_key_get_utf32(xkb, xkb_keycode);
+            if (ch32 >= ' ' && ch32 < 0x7f)
+            {
+              char ch = (ch32 >= 'A' && ch32 <= 'Z') ?
+                (char)(ch32 - 'A' + 'a') : (char)ch32;
+              search_query += ch;
+              apply_filter();
+              recalc_grid_animation();
+              return;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    switch (event.keycode)
+    {
+    case KEY_LEFT:
+      next_view(-1);
+      break;
+
+    case KEY_RIGHT:
+      next_view(1);
+      break;
+
+    case KEY_TAB:
+      next_view(1);
+      break;
+
+      case KEY_UP:
+        if (filtered_views.empty()) break;
+        {
+          int cur_row = selected_index / grid_cols;
+          int cur_col = selected_index % grid_cols;
+          int new_row = (cur_row - 1 + grid_rows) % grid_rows;
+          int new_index = new_row * grid_cols + cur_col;
+          if (new_index >= (int)filtered_views.size())
+          {
+            new_index = (int)filtered_views.size() - 1;
+          }
+          selected_index = new_index;
+          recalc_grid_animation();
+        }
+        break;
+
+      case KEY_DOWN:
+        if (filtered_views.empty()) break;
+        {
+          int cur_row = selected_index / grid_cols;
+          int cur_col = selected_index % grid_cols;
+          int new_row = (cur_row + 1) % grid_rows;
+          int new_index = new_row * grid_cols + cur_col;
+          if (new_index >= (int)filtered_views.size())
+          {
+            new_index = (int)filtered_views.size() - 1;
+          }
+          selected_index = new_index;
+          recalc_grid_animation();
+        }
+        break;
+
+      case KEY_HOME:
+        if (!filtered_views.empty())
+        {
+          selected_index = 0;
+          recalc_grid_animation();
+        }
+        break;
+
+      case KEY_END:
+        if (!filtered_views.empty())
+        {
+          selected_index = (int)filtered_views.size() - 1;
+          recalc_grid_animation();
+        }
+        break;
+
+      case KEY_ENTER:
+        handle_done();
+        break;
+
+      case KEY_ESC:
+        if (!search_query.empty())
+        {
+          search_query.clear();
+          apply_filter();
+          recalc_grid_animation();
+          break;
+        }
+
+        selected_index = 0;
+        handle_done();
+        break;
+
+      case KEY_DELETE:
+        close_selected_view(selected_index);
+        break;
+
+      case KEY_BACKSPACE:
+        if (!search_query.empty())
+        {
+          search_query.pop_back();
+          apply_filter();
+          recalc_grid_animation();
+        } else
+        {
+          close_selected_view(selected_index);
+        }
+        break;
+
+      default:
+        {
+          auto mod = wf::get_core().seat->modifier_from_keycode(event.keycode);
+          if (mod & activating_modifiers)
+          {
+            handle_done();
+          }
+        }
+        break;
+    }
+  }
 
     wf::key_callback next_view_binding = [=] (auto)
     {
@@ -228,12 +473,20 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         return false;
     };
 
+    bool animations_running()
+    {
+        return std::any_of(views.begin(), views.end(), [] (SwitcherView& sv)
+        {
+            return !sv.animation_finished();
+        });
+    }
+
     wf::effect_hook_t pre_hook = [=] ()
     {
         dim_background(background_dim);
         wf::scene::damage_node(render_node, render_node->get_bounding_box());
 
-        if (!duration.running())
+        if (!animations_running())
         {
             cleanup_expired();
             if (!active)
@@ -252,77 +505,87 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         }
     };
 
-    void handle_view_removed(wayfire_toplevel_view view)
+  void handle_view_removed(wayfire_toplevel_view view)
+  {
+    if (!output->is_plugin_active(grab_interface.name))
     {
-        // not running at all, don't care
-        if (!output->is_plugin_active(grab_interface.name))
-        {
-            return;
-        }
-
-        bool need_action = false;
-        for (auto& sv : views)
-        {
-            need_action |= (sv.view == view);
-        }
-
-        // don't do anything if we're not using this view
-        if (!need_action)
-        {
-            return;
-        }
-
-        if (active)
-        {
-            arrange();
-        } else
-        {
-            cleanup_views([=] (SwitcherView& sv)
-            { return sv.view == view; });
-        }
+      return;
     }
 
-    bool handle_switch_request(int dir)
+    bool need_action = false;
+    for (auto& sv : views)
     {
-        if (get_workspace_views().empty())
-        {
-            return false;
-        }
-
-        /* If we haven't grabbed, then we haven't setup anything */
-        if (!output->is_plugin_active(grab_interface.name))
-        {
-            if (!init_switcher())
-            {
-                return false;
-            }
-        }
-
-        /* Maybe we're still animating the exit animation from a previous
-         * switcher activation? */
-        if (!active)
-        {
-            active = true;
-            input_grab->grab_input(wf::scene::layer::OVERLAY);
-
-            focus_next(dir);
-            arrange();
-            activating_modifiers = wf::get_core().seat->get_keyboard_modifiers();
-        } else
-        {
-            next_view(dir);
-        }
-
-        return true;
+      need_action |= (sv.view == view);
     }
+
+    if (!need_action)
+    {
+      return;
+    }
+
+    if (active)
+    {
+      cleanup_views([=] (SwitcherView& sv)
+      { return sv.view == view; });
+      apply_filter();
+      if (filtered_views.empty())
+      {
+        handle_done();
+      } else
+      {
+        if (selected_index >= (int)filtered_views.size())
+        {
+          selected_index = (int)filtered_views.size() - 1;
+        }
+        recalc_grid_animation();
+      }
+    } else
+    {
+      cleanup_views([=] (SwitcherView& sv)
+      { return sv.view == view; });
+    }
+  }
+
+  bool handle_switch_request(int dir)
+  {
+    if (get_workspace_views().empty())
+    {
+      return false;
+    }
+
+    if (!output->is_plugin_active(grab_interface.name))
+    {
+      if (!init_switcher())
+      {
+        return false;
+      }
+    }
+
+    if (!active)
+    {
+      active = true;
+      input_grab->grab_input(wf::scene::layer::OVERLAY);
+      arrange(dir);
+      activating_modifiers = wf::get_core().seat->get_keyboard_modifiers();
+    } else
+    {
+      next_view(dir);
+    }
+
+    return true;
+  }
 
     /* When switcher is done and starts animating towards end */
-    void handle_done()
+  void handle_done()
+  {
+    cleanup_expired();
+    if (!filtered_views.empty())
     {
-        cleanup_expired();
-        dearrange();
-        input_grab->ungrab_input();
+      wf::get_core().default_wm->focus_raise_view(filtered_views[selected_index]->view);
     }
+    dearrange();
+    input_grab->ungrab_input();
+  }
 
     /* Sets up basic hooks needed while switcher works and/or displays animations.
      * Also lower any fullscreen views that are active */
@@ -362,7 +625,9 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
                 switcher_transformer_background);
         }
 
-        views.clear();
+    views.clear();
+    filtered_views.clear();
+    search_query.clear();
 
         wf::scene::update(wf::get_core().scene(),
             wf::scene::update_flag::INPUT_STATE);
@@ -372,24 +637,24 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
     void calculate_grid_layout(int view_count)
     {
         auto og = output->get_relative_geometry();
-        
+
         thumbnail_width = view_thumbnail_width;
         grid_width_percentage = grid_width_percent / 100.0;
-        
+
         float grid_width = og.width * grid_width_percentage;
-        
+
         // Calculate number of columns that fit in grid width
         grid_cols = std::max(1, (int)(grid_width / thumbnail_width));
-        
+
         // Ensure at least 1 column
         if (grid_cols < 1)
         {
             grid_cols = 1;
         }
-        
+
         // Calculate number of rows needed
         grid_rows = (view_count + grid_cols - 1) / grid_cols;
-        
+
         // Ensure at least 1 row
         if (grid_rows < 1)
         {
@@ -401,45 +666,42 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
     wf::geometry_t calculate_thumbnail_geometry(int row, int col, const wf::geometry_t& view_bbox)
     {
         auto og = output->get_relative_geometry();
-        
+
         float grid_width = og.width * grid_width_percentage;
-        
+
         // Calculate thumbnail height maintaining aspect ratio
         float aspect_ratio = (float)view_bbox.width / view_bbox.height;
         int thumb_height = thumbnail_width / aspect_ratio;
-        
+
         // Calculate spacing
-        int h_spacing = (grid_width - (grid_cols * thumbnail_width)) / (grid_cols + 1);
-        int v_spacing = 20; // vertical spacing between rows
-        
+    int h_spacing = (grid_width - (grid_cols * thumbnail_width)) / (grid_cols + 1);
+    int vert_spacing = v_spacing;
+
         // Calculate total grid height
-        int total_grid_height = grid_rows * thumb_height + (grid_rows + 1) * v_spacing;
-        
-        // Starting position (centered)
-        int start_x = (og.width - grid_width) / 2;
-        int start_y = (og.height - total_grid_height) / 2;
-        
-        wf::geometry_t geom;
-        geom.x = start_x + h_spacing + col * (thumbnail_width + h_spacing);
-        geom.y = start_y + v_spacing + row * (thumb_height + v_spacing);
-        geom.width = thumbnail_width;
+    int total_grid_height = grid_rows * thumb_height + (grid_rows + 1) * vert_spacing;
+
+    int start_x = (og.width - grid_width) / 2;
+    int start_y = (og.height - total_grid_height) / 2;
+
+    wf::geometry_t geom;
+    geom.x = start_x + h_spacing + col * (thumbnail_width + h_spacing);
+    geom.y = start_y + vert_spacing + row * (thumb_height + vert_spacing);
+        geom.width  = thumbnail_width;
         geom.height = thumb_height;
-        
+
         return geom;
     }
 
     /* Calculate alpha for the view when switcher is inactive. */
-    float get_view_normal_alpha(wayfire_toplevel_view view)
+  float get_view_normal_alpha(wayfire_toplevel_view view)
+  {
+    if (view->minimized && (filtered_views.empty() || (view != filtered_views[0]->view)))
     {
-        /* Usually views are visible, but if they were minimized,
-         * and we aren't restoring the view, it has target alpha 0.0 */
-        if (view->minimized && (views.empty() || (view != views[0].view)))
-        {
-            return 0.0;
-        }
-
-        return 1.0;
+      return 0.0;
     }
+
+    return 1.0;
+  }
 
     // returns a list of mapped views
     std::vector<wayfire_toplevel_view> get_workspace_views() const
@@ -447,29 +709,18 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         return output->wset()->get_views(wf::WSET_MAPPED_ONLY | wf::WSET_CURRENT_WORKSPACE);
     }
 
-    /* Change the current focus to the next or the previous view */
-    void focus_next(int dir)
-    {
-        auto ws_views = get_workspace_views();
-        /* Change the focused view and rearrange views so that focused is on top */
-        int size = ws_views.size();
-
-        // calculate focus index & focus it
-        int focused_view_index = (size + dir) % size;
-        auto focused_view = ws_views[focused_view_index];
-        wf::view_bring_to_front(focused_view);
-    }
-
-    /* Create the initial arrangement on the screen
-     * Also changes the focus to the next or the last view, depending on dir */
-    void arrange()
+    /**
+     * Create initial arrangement on screen.
+     * The center view is directly the new focus, depending on the direction
+     * (-1 for right aka second in the focus order, 1 for left aka last in the
+     * focus order, 0 for no change in focus).
+     */
+    void arrange(int focus_direction)
     {
         // clear views in case that deinit() hasn't been run
-        views.clear();
-
-        duration.start();
-        background_dim.set(1, background_dim_factor);
-        background_dim_duration.start();
+    views.clear();
+    background_dim.set(1, (double)background_dim_opt);
+    background_dim_duration.start();
 
         auto ws_views = get_workspace_views();
         for (auto v : ws_views)
@@ -496,64 +747,67 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
             int row = i / grid_cols;
             int col = i % grid_cols;
             views[i].index = i;
-            
+
             auto bbox = wf::view_bounding_box_up_to(views[i].view, switcher_transformer);
             views[i].target_geometry = calculate_thumbnail_geometry(row, col, bbox);
         }
 
-        // Set initial animation targets
-        for (auto& sv : views)
-        {
-            animate_to_grid_position(sv);
-        }
-
-        // We want the next view to be focused right off the bat
-        // But we want it to be animated.
-        handle_switch_request(-1);
-    }
-
-    void animate_to_grid_position(SwitcherView& sv)
+  // Set initial animation targets
+    for (auto& sv : views)
     {
-        auto bbox = wf::view_bounding_box_up_to(sv.view, switcher_transformer);
-        
-        sv.attribs.off_x.set(0, sv.target_geometry.x - bbox.x);
-        sv.attribs.off_y.set(0, sv.target_geometry.y - bbox.y);
-        sv.attribs.off_z.set(0, 0);
-
-        // Calculate scale to fit thumbnail width
-        float scale = (float)thumbnail_width / bbox.width;
-        sv.attribs.scale_x.set(1, scale);
-        sv.attribs.scale_y.set(1, scale);
-        sv.attribs.rotation.set(0, 0);
-        sv.attribs.alpha.set(get_view_normal_alpha(sv.view), 1.0);
+      animate_to_grid_position(sv);
     }
 
-    void dearrange()
+    // Start with the first view selected
+    selected_index = 0;
+    search_query.clear();
+    apply_filter();
+  }
+
+  void animate_to_grid_position(SwitcherView& sv)
+  {
+    auto bbox = wf::view_bounding_box_up_to(sv.view, switcher_transformer);
+
+    sv.attribs.off_x.set(0, sv.target_geometry.x - bbox.x);
+    sv.attribs.off_y.set(0, sv.target_geometry.y - bbox.y);
+    sv.attribs.off_z.set(0, 0);
+
+    float scale = (float)thumbnail_width / bbox.width;
+    float scale_target = (sv.index == selected_index) ? scale * (float)(double)selected_scale : scale;
+    sv.attribs.scale_x.set(1, scale_target);
+    sv.attribs.scale_y.set(1, scale_target);
+    sv.attribs.rotation.set(0, 0);
+
+    float alpha_target = (sv.index == selected_index) ? 1.0 : (float)(double)inactive_alpha_opt;
+    sv.attribs.alpha.set(get_view_normal_alpha(sv.view), alpha_target);
+    sv.attribs.timer.start();
+  }
+
+  void dearrange()
+  {
+    for (auto& sv : views)
     {
-        for (auto& sv : views)
-        {
-            sv.attribs.off_x.restart_with_end(0);
-            sv.attribs.off_y.restart_with_end(0);
-            sv.attribs.off_z.restart_with_end(0);
+      sv.attribs.off_x.restart_with_end(0);
+      sv.attribs.off_y.restart_with_end(0);
+      sv.attribs.off_z.restart_with_end(0);
 
-            sv.attribs.scale_x.restart_with_end(1.0);
-            sv.attribs.scale_y.restart_with_end(1.0);
+      sv.attribs.scale_x.restart_with_end(1.0);
+      sv.attribs.scale_y.restart_with_end(1.0);
 
-            sv.attribs.rotation.restart_with_end(0);
-            sv.attribs.alpha.restart_with_end(get_view_normal_alpha(sv.view));
-        }
-
-        background_dim.restart_with_end(1);
-        background_dim_duration.start();
-        duration.start();
-        active = false;
-
-        /* Potentially restore view[0] if it was maximized */
-        if (views.size())
-        {
-            wf::get_core().default_wm->focus_raise_view(views[0].view);
-        }
+      sv.attribs.rotation.restart_with_end(0);
+      sv.attribs.alpha.restart_with_end(get_view_normal_alpha(sv.view));
+      sv.attribs.timer.start();
     }
+
+    background_dim.restart_with_end(1);
+    background_dim_duration.start();
+    active = false;
+
+    if (!filtered_views.empty())
+    {
+      wf::get_core().default_wm->focus_raise_view(filtered_views[0]->view);
+    }
+  }
 
     std::vector<wayfire_view> get_background_views() const
     {
@@ -607,9 +861,9 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
                 wf::TRANSFORMER_3D, switcher_transformer);
         }
 
-        SwitcherView sw{duration};
-        sw.view     = view;
-        sw.index    = -1;
+        SwitcherView sw{speed};
+        sw.view = view;
+        sw.index = -1;
 
         return sw;
     }
@@ -620,10 +874,10 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         view->get_transformed_node()->gen_render_instances(instances, [] (auto) {});
 
         wf::render_pass_params_t params;
-        params.instances = &instances;
-        params.damage    = view->get_transformed_node()->get_bounding_box();
+        params.instances  = &instances;
+        params.damage     = view->get_transformed_node()->get_bounding_box();
         params.reference_output = this->output;
-        params.target = buffer;
+        params.target     = buffer;
         wf::render_pass_t::run(params);
     }
 
@@ -634,8 +888,8 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
         assert(transform);
 
         transform->translation = glm::translate(glm::mat4(1.0),
-        {(double)sv.attribs.off_x, (double)sv.attribs.off_y,
-            (double)sv.attribs.off_z});
+            {(double)sv.attribs.off_x, (double)sv.attribs.off_y,
+             (double)sv.attribs.off_z});
 
         transform->scaling = glm::scale(glm::mat4(1.0),
             {(double)sv.attribs.scale_x, (double)sv.attribs.scale_y, 1.0});
@@ -657,11 +911,11 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
             render_view_scene(view, local_target);
         }
 
-        /* Render in the reverse order because we don't use depth testing */
-        for (auto& view : wf::reverse(views))
-        {
-            render_view(view, local_target);
-        }
+    /* Render in the reverse order because we don't use depth testing */
+    for (auto it = filtered_views.rbegin(); it != filtered_views.rend(); ++it)
+    {
+      render_view(**it, local_target);
+    }
 
         for (auto view : get_overlay_views())
         {
@@ -671,43 +925,117 @@ class WayfireSwitcher : public wf::per_output_plugin_instance_t, public wf::keyb
 
     /* delete all views matching the given criteria, skipping the first "start" views
      * */
-    void cleanup_views(std::function<bool(SwitcherView&)> criteria)
+  void cleanup_views(std::function<bool(SwitcherView&)> criteria)
+  {
+    auto it = views.begin();
+    while (it != views.end())
     {
-        auto it = views.begin();
-        while (it != views.end())
+      if (criteria(*it))
+      {
+        it = views.erase(it);
+      } else
+      {
+        ++it;
+      }
+    }
+  }
+
+  void apply_filter()
+  {
+    filtered_views.clear();
+
+    if (search_query.empty())
+    {
+      for (auto& sv : views)
+      {
+        filtered_views.push_back(&sv);
+      }
+    } else
+    {
+      std::string query_lower = search_query;
+      std::transform(query_lower.begin(), query_lower.end(),
+        query_lower.begin(), ::tolower);
+
+      for (auto& sv : views)
+      {
+        std::string title = sv.view->get_title();
+        std::transform(title.begin(), title.end(), title.begin(), ::tolower);
+        if (title.find(query_lower) != std::string::npos)
         {
-            if (criteria(*it))
-            {
-                it = views.erase(it);
-            } else
-            {
-                ++it;
-            }
+          filtered_views.push_back(&sv);
         }
+      }
     }
 
-    /* Removes all expired views from the list */
-    void cleanup_expired()
+    if (selected_index >= (int)filtered_views.size())
     {
-        // Grid layout doesn't have expired views
+      selected_index = std::max(0, (int)filtered_views.size() - 1);
     }
+  }
 
-    void next_view(int dir)
+  void cleanup_expired()
+  {
+    auto it = views.begin();
+    bool changed = false;
+    while (it != views.end())
     {
-        if (views.empty())
-        {
-            return;
-        }
-
-        // Update selected index
-        int new_index = (selected_index + dir + views.size()) % views.size();
-        
-        // Bring selected view to front
-        wf::view_bring_to_front(views[new_index].view);
-        selected_index = new_index;
-        
-        duration.start();
+      if (!it->view->is_mapped())
+      {
+        it = views.erase(it);
+        changed = true;
+      } else
+      {
+        ++it;
+      }
     }
+
+    if (changed)
+    {
+      apply_filter();
+      if (!filtered_views.empty())
+      {
+        recalc_grid_animation();
+      }
+    }
+  }
+
+  void recalc_grid_animation()
+  {
+    if (filtered_views.empty())
+    {
+      return;
+    }
+
+    if (selected_index >= 0 && selected_index < (int)filtered_views.size())
+    {
+      wf::view_bring_to_front(filtered_views[selected_index]->view);
+    }
+
+    calculate_grid_layout(filtered_views.size());
+    for (size_t i = 0; i < filtered_views.size(); i++)
+    {
+      int row = i / grid_cols;
+      int col = i % grid_cols;
+      filtered_views[i]->index = i;
+
+      auto bbox = wf::view_bounding_box_up_to(filtered_views[i]->view, switcher_transformer);
+      filtered_views[i]->target_geometry = calculate_thumbnail_geometry(row, col, bbox);
+
+      filtered_views[i]->refresh_start();
+      animate_to_grid_position(*filtered_views[i]);
+    }
+  }
+
+  void next_view(int dir)
+  {
+    if (filtered_views.empty())
+    {
+      return;
+    }
+
+    selected_index = (selected_index + dir + (int)filtered_views.size()) % (int)filtered_views.size();
+    recalc_grid_animation();
+  }
 
     void fini() override
     {

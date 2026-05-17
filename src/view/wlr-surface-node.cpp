@@ -1,5 +1,4 @@
 #include "wayfire/unstable/wlr-surface-node.hpp"
-#include "pixman.h"
 #include "wayfire/geometry.hpp"
 #include "wayfire/render-manager.hpp"
 #include "wayfire/scene-render.hpp"
@@ -32,15 +31,19 @@ wf::scene::surface_state_t& wf::scene::surface_state_t::operator =(surface_state
     current_buffer = other.current_buffer;
     texture = other.texture;
     accumulated_damage = other.accumulated_damage;
+    opaque_region = other.opaque_region;
     seq  = other.seq;
     size = other.size;
     src_viewport = other.src_viewport;
     transform    = other.transform;
+    color_transform = other.color_transform;
 
     other.current_buffer = NULL;
     other.texture = NULL;
     other.accumulated_damage.clear();
+    other.opaque_region.clear();
     other.src_viewport.reset();
+    other.color_transform = wf::color_transform_t{};
     other.seq.reset();
     return *this;
 }
@@ -71,6 +74,35 @@ void wf::scene::surface_state_t::merge_state(wlr_surface *surface)
         this->size    = {0, 0};
     }
 
+    this->color_transform = wf::color_transform_t{};
+    this->color_transform.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
+    const wlr_image_description_v1_data *img_desc =
+        wlr_surface_get_image_description_v1_data(surface);
+    if (img_desc != NULL)
+    {
+        this->color_transform.transfer_function = wlr_color_manager_v1_transfer_function_to_wlr(
+            (wp_color_manager_v1_transfer_function)img_desc->tf_named);
+        this->color_transform.primaries = wlr_color_manager_v1_primaries_to_wlr(
+            (wp_color_manager_v1_primaries)img_desc->primaries_named);
+    }
+
+    const wlr_color_representation_v1_surface_state *color_repr =
+        wlr_color_representation_v1_get_surface_state(surface);
+    if (color_repr != NULL)
+    {
+        if (color_repr->coefficients != 0)
+        {
+            this->color_transform.color_encoding = wlr_color_representation_v1_color_encoding_to_wlr(
+                (wp_color_representation_surface_v1_coefficients)color_repr->coefficients);
+        }
+
+        if (color_repr->range != 0)
+        {
+            this->color_transform.color_range = wlr_color_representation_v1_color_range_to_wlr(
+                (wp_color_representation_surface_v1_range)color_repr->range);
+        }
+    }
+
     if (surface->current.viewport.has_src)
     {
         wlr_fbox fbox;
@@ -86,6 +118,7 @@ void wf::scene::surface_state_t::merge_state(wlr_surface *surface)
     wf::region_t current_damage;
     wlr_surface_get_effective_damage(surface, current_damage.to_pixman());
     this->accumulated_damage |= current_damage;
+    this->opaque_region = wf::region_t{&surface->opaque_region};
 }
 
 wf::scene::surface_state_t::~surface_state_t()
@@ -310,11 +343,7 @@ class wf::scene::wlr_surface_node_t::wlr_surface_render_instance_t : public rend
                 .damage   = std::move(our_damage),
             });
 
-            if (self->surface)
-            {
-                pixman_region32_subtract(damage.to_pixman(), damage.to_pixman(),
-                    &self->surface->opaque_region);
-            }
+            damage ^= self->current_state.opaque_region;
         }
     }
 
@@ -325,7 +354,7 @@ class wf::scene::wlr_surface_node_t::wlr_surface_render_instance_t : public rend
             return;
         }
 
-        data.pass->add_texture(*self->to_texture(), data.target, self->get_bounding_box(), data.damage);
+        data.pass->add_texture(self->to_texture(), data.target, self->get_bounding_box(), data.damage);
     }
 
     void presentation_feedback(wf::output_t *output) override
@@ -400,10 +429,9 @@ class wf::scene::wlr_surface_node_t::wlr_surface_render_instance_t : public rend
             // We are visible on the given output => send wl_surface.frame on output frame, so that clients
             // can draw the next frame.
             output->connect(&on_frame_done);
-            if (use_opaque_optimizations && self->surface)
+            if (use_opaque_optimizations)
             {
-                pixman_region32_subtract(visible.to_pixman(), visible.to_pixman(),
-                    &self->surface->opaque_region);
+                visible ^= self->current_state.opaque_region;
             }
         }
     }
@@ -427,14 +455,18 @@ wlr_surface*wf::scene::wlr_surface_node_t::get_surface() const
     return this->surface;
 }
 
-std::optional<wf::texture_t> wf::scene::wlr_surface_node_t::to_texture() const
+std::shared_ptr<wf::texture_t> wf::scene::wlr_surface_node_t::to_texture() const
 {
     if (this->current_state.current_buffer)
     {
-        return wf::texture_t{current_state.texture, current_state.src_viewport, current_state.transform};
+        auto tex = wf::texture_t::from_buffer(current_state.current_buffer, current_state.texture);
+        tex->set_source_box(current_state.src_viewport);
+        tex->set_transform(current_state.transform);
+        tex->set_color_transform(current_state.color_transform);
+        return tex;
     }
 
-    return {};
+    return nullptr;
 }
 
 // Idea of handling output enter/leave events: when the event comes, we store the number of enters/leaves

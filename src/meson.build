@@ -17,6 +17,7 @@ wayfire_sources = ['geometry.cpp',
                    'core/img.cpp',
                    'core/wm.cpp',
                    'core/view-access-interface.cpp',
+                   'core/xdg-output-management.cpp',
 
                    'core/txn/transaction.cpp',
                    'core/txn/transaction-manager.cpp',
@@ -50,6 +51,7 @@ wayfire_sources = ['geometry.cpp',
                    'view/xwayland/xwayland-view-base.cpp',
                    'view/xwayland/xwayland-toplevel.cpp',
                    'view/xwayland/xwayland-helpers.cpp',
+                   'view/xwayland/xwayland-surface.cpp',
                    'view/layer-shell/layer-shell.cpp',
                    'view/layer-shell/layer-shell-node.cpp',
                    'view/view-3d.cpp',
@@ -68,6 +70,12 @@ wayfire_dependencies = [wayland_server, wlroots, xkbcommon, libinput,
                        pixman, drm, egl, glesv2, glm, wf_protos, libdl,
                        wfconfig, libinotify, backtrace, wfutils, xcb,
                        wftouch, json_flags, udev]
+
+if use_vulkan
+  wayfire_dependencies += vulkan
+  wayfire_sources += vulkan_shaders
+  wayfire_sources += 'core/vulkan.cpp'
+endif
 
 if conf_data.get('BUILD_WITH_IMAGEIO')
     wayfire_dependencies += [jpeg, png]
@@ -157,7 +165,7 @@ if wlroots_features['gles2_renderer']
   public_api_requirements += glesv2
 endif
 
-if wlroots_features['vulkan_renderer']
+if use_vulkan
   public_api_requirements += vulkan
 endif
 
